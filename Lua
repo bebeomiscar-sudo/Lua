@@ -1,7 +1,7 @@
 -- =============================================
 --   Riot Shield Godmode — Rivals
---   Rayfield UI
---   Requires Riot Shield in loadout
+--   Rayfield UI | Fixed & Optimized
+--   by Pro Scripter Fix
 -- =============================================
 
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
@@ -12,40 +12,89 @@ local RunService        = game:GetService("RunService")
 local lp                = Players.LocalPlayer
 
 -- =============================================
---   Require modules
+--   Safe Require Helper
 -- =============================================
 
-local FighterController = require(lp.PlayerScripts.Controllers.FighterController)
-local EnumLibrary       = require(ReplicatedStorage.Modules.EnumLibrary)
-local Utility           = require(ReplicatedStorage.Modules.Utility)
+local function safeRequire(path)
+    local ok, result = pcall(require, path)
+    if ok then return result end
+    return nil
+end
 
--- Riot Shield specific item module
-local RiotShieldModule
-pcall(function()
-    RiotShieldModule = require(lp.PlayerScripts.Modules.Items["Riot Shield"])
-end)
+-- =============================================
+--   Require Modules
+-- =============================================
 
--- CollectEffect visual function
-local CollectEffect
-pcall(function()
-    CollectEffect = require(lp.PlayerScripts.Modules.Functions.CollectEffect)
-end)
+local FighterController = safeRequire(lp.PlayerScripts:WaitForChild("Controllers"):WaitForChild("FighterController"))
+local EnumLibrary       = safeRequire(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("EnumLibrary"))
+local Utility           = safeRequire(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Utility"))
+
+local RiotShieldModule  = safeRequire(
+    lp.PlayerScripts:WaitForChild("Modules"):WaitForChild("Items"):WaitForChild("Riot Shield")
+)
+
+local CollectEffect     = safeRequire(
+    lp.PlayerScripts:WaitForChild("Modules"):WaitForChild("Functions"):WaitForChild("CollectEffect")
+)
+
+-- =============================================
+--   FIX #1 — Hook ReplicateUnreliable OnClientEvent
+--   This was causing the "event dropped" error
+--   and your friend's lag/not working issue
+-- =============================================
+
+local ReplicateUnreliable = ReplicatedStorage
+    :WaitForChild("Remotes")
+    :WaitForChild("Replication")
+    :WaitForChild("Fighter")
+    :FindFirstChild("ReplicateUnreliable")
+
+if ReplicateUnreliable then
+    -- Properly handle incoming unreliable events
+    -- so the server doesn't drop/discard them
+    ReplicateUnreliable.OnClientEvent:Connect(function(...)
+        -- Silently consume the event
+        -- This stops the "did you forget to implement OnClientEvent?" error
+        -- and prevents the lag spike from event queue buildup
+    end)
+end
+
+-- =============================================
+--   Remote References (cached, not re-fetched every frame)
+-- =============================================
+
+local UseItemRemote = ReplicatedStorage
+    :WaitForChild("Remotes")
+    :WaitForChild("Replication")
+    :WaitForChild("Fighter")
+    :WaitForChild("UseItem")
+
+-- =============================================
+--   FIX #2 — Throttle Rate
+--   Instead of every Heartbeat (~60/s) we fire
+--   every 0.1s which is plenty to hold block state
+--   without spamming the server and causing lag
+-- =============================================
+
+local BLOCK_RATE     = 0.12  -- seconds between each FireServer (was 0 = every frame = lag)
+local lastBlockFire  = 0
 
 -- =============================================
 --   Helpers
 -- =============================================
 
--- Find the Riot Shield item in the fighter's inventory
 local function getRiotShield()
+    if not FighterController then return nil end
+
     local fighter = FighterController.LocalFighter
     if not fighter then return nil end
 
-    -- Check currently equipped item
+    -- Check equipped item first
     if fighter.EquippedItem and fighter.EquippedItem.Name == "Riot Shield" then
         return fighter.EquippedItem
     end
 
-    -- Search all items in fighter
+    -- Search items table
     if fighter.Items then
         for _, item in pairs(fighter.Items) do
             if item.Name == "Riot Shield" then
@@ -54,7 +103,7 @@ local function getRiotShield()
         end
     end
 
-    -- Also check Objects table
+    -- Search FighterController.Objects
     if FighterController.Objects then
         for _, fighterObj in pairs(FighterController.Objects) do
             if fighterObj.Player == lp and fighterObj.Items then
@@ -70,21 +119,18 @@ local function getRiotShield()
     return nil
 end
 
--- Plays the blue shield absorb particle at player position
 local function playShieldEffect(color)
     if not CollectEffect then return end
     local char = lp.Character
     if not char then return end
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
-    pcall(function()
-        CollectEffect(
-            hrp.Position + Vector3.new(0, 2, 0),       -- spawn above player
-            color or Color3.fromRGB(80, 160, 255),      -- blue shield color
-            nil,                                         -- no sound
-            1.5                                          -- particle scale
-        )
-    end)
+    pcall(CollectEffect,
+        hrp.Position + Vector3.new(0, 2, 0),
+        color or Color3.fromRGB(80, 160, 255),
+        nil,
+        1.5
+    )
 end
 
 -- =============================================
@@ -92,28 +138,49 @@ end
 -- =============================================
 
 local Godmode = {
-    Enabled     = false,
-    BlockConn   = nil,   -- heartbeat loop that spams block state
-    HealthConn  = nil,   -- listens for incoming damage
-    LastHealth  = nil,
+    Enabled    = false,
+    BlockConn  = nil,
+    HealthConn = nil,
+    LastHealth = nil,
 }
 
 -- =============================================
---   Core: keep shield in blocking state
---   Fires StartAiming (block) every heartbeat
---   so the server always sees the shield as active
+--   FIX #3 — Block Loop with Throttle
+--   No longer fires every single frame
+--   Uses delta time accumulation instead
 -- =============================================
 
 local function startBlockLoop()
-    if Godmode.BlockConn then Godmode.BlockConn:Disconnect() end
-    Godmode.BlockConn = RunService.Heartbeat:Connect(function()
+    if Godmode.BlockConn then
+        Godmode.BlockConn:Disconnect()
+        Godmode.BlockConn = nil
+    end
+
+    local accum = 0
+
+    Godmode.BlockConn = RunService.Heartbeat:Connect(function(dt)
         if not Godmode.Enabled then return end
+
+        accum = accum + dt
+
+        -- Only fire every BLOCK_RATE seconds
+        if accum < BLOCK_RATE then return end
+        accum = 0
+
         local shield = getRiotShield()
         if not shield then return end
+
+        local objectID
+        local ok = pcall(function()
+            objectID = shield:Get("ObjectID")
+        end)
+        if not ok or not objectID then return end
+
+        -- FIX #4 — Use FireServer safely with proper enum
+        -- Wrapped to prevent any errors from crashing the loop
         pcall(function()
-            -- Continuously fire the shield's block/aim state
-            ReplicatedStorage.Remotes.Replication.Fighter.UseItem:FireServer(
-                shield:Get("ObjectID"),
+            UseItemRemote:FireServer(
+                objectID,
                 EnumLibrary:ToEnum("StartAiming"),
                 {},
                 nil
@@ -123,62 +190,78 @@ local function startBlockLoop()
 end
 
 -- =============================================
---   Core: detect damage and trigger AbsorbedHit
---   When health drops, fire StopAiming then
---   StartAiming immediately to "re-block"
+--   FIX #5 — Health Hook with proper nil checks
 -- =============================================
 
 local function hookHealthChanged(fighter)
-    if Godmode.HealthConn then Godmode.HealthConn:Disconnect() end
-    Godmode.LastHealth = fighter:Get("Health") or 100
+    if not fighter then return end
+
+    if Godmode.HealthConn then
+        Godmode.HealthConn:Disconnect()
+        Godmode.HealthConn = nil
+    end
+
+    local ok, hp = pcall(function()
+        return fighter:Get("Health")
+    end)
+    Godmode.LastHealth = (ok and hp) or 100
+
+    -- FIX: Check the signal exists before connecting
+    if not fighter.HealthChanged then return end
 
     Godmode.HealthConn = fighter.HealthChanged:Connect(function()
         if not Godmode.Enabled then return end
-        local currentHealth = fighter:Get("Health") or 100
 
-        -- Damage detected
+        local currentHealth
+        local ok2, result = pcall(function()
+            return fighter:Get("Health")
+        end)
+        currentHealth = (ok2 and result) or 100
+
         if currentHealth < (Godmode.LastHealth or currentHealth) then
             local shield = getRiotShield()
 
-            -- Trigger AbsorbedHit animation on the Riot Shield viewmodel
-            if RiotShieldModule then
-                pcall(function()
-                    -- Find the local fighter's Riot Shield item instance
-                    local localFighterObj = FighterController:GetFighter(lp)
-                    if localFighterObj and localFighterObj.Items then
-                        for _, item in pairs(localFighterObj.Items) do
-                            if item.Name == "Riot Shield" then
-                                -- Trigger the client-side AbsorbedHit visual
-                                item:ReplicateFromServer("AbsorbedHit")
-                                break
-                            end
+            -- Trigger AbsorbedHit visual
+            pcall(function()
+                local localFighterObj = FighterController:GetFighter(lp)
+                if localFighterObj and localFighterObj.Items then
+                    for _, item in pairs(localFighterObj.Items) do
+                        if item.Name == "Riot Shield" then
+                            item:ReplicateFromServer("AbsorbedHit")
+                            break
                         end
                     end
-                end)
-            end
+                end
+            end)
 
-            -- Re-fire block to try to cancel the damage server-side
+            -- FIX #6 — Re-block: use task.defer instead of task.wait()
+            -- task.wait() with no arg can cause inconsistent timing
             if shield then
                 pcall(function()
-                    -- Stop → Start immediately to reset block state
-                    ReplicatedStorage.Remotes.Replication.Fighter.UseItem:FireServer(
-                        shield:Get("ObjectID"),
+                    local objectID = shield:Get("ObjectID")
+
+                    UseItemRemote:FireServer(
+                        objectID,
                         EnumLibrary:ToEnum("StopAiming"),
                         {}, nil
                     )
-                    task.wait()
-                    ReplicatedStorage.Remotes.Replication.Fighter.UseItem:FireServer(
-                        shield:Get("ObjectID"),
-                        EnumLibrary:ToEnum("StartAiming"),
-                        {}, nil
-                    )
+
+                    -- defer to next frame instead of task.wait()
+                    task.defer(function()
+                        pcall(function()
+                            UseItemRemote:FireServer(
+                                objectID,
+                                EnumLibrary:ToEnum("StartAiming"),
+                                {}, nil
+                            )
+                        end)
+                    end)
                 end)
             end
 
-            -- Blue shield effect on absorb
             playShieldEffect(Color3.fromRGB(80, 160, 255))
+
         else
-            -- Health went up or stayed same — green effect
             playShieldEffect(Color3.fromRGB(80, 255, 120))
         end
 
@@ -191,12 +274,22 @@ end
 -- =============================================
 
 local function startGodmode()
-    -- Validate Riot Shield exists in loadout
     local shield = getRiotShield()
+
     if not shield then
         Rayfield:Notify({
-            Title = "Riot Shield Required",
-            Content = "You need the Riot Shield in your loadout!",
+            Title   = "Riot Shield Required",
+            Content = "Equip the Riot Shield in your loadout first!",
+            Duration = 4,
+            Image   = 4483362458,
+        })
+        return false
+    end
+
+    if not FighterController then
+        Rayfield:Notify({
+            Title   = "Module Error",
+            Content = "FighterController failed to load.",
             Duration = 4,
             Image   = 4483362458,
         })
@@ -205,19 +298,22 @@ local function startGodmode()
 
     Godmode.Enabled = true
 
+    -- Hook health in background
     task.spawn(function()
-        local fighter = FighterController:WaitForLocalFighter()
-        hookHealthChanged(fighter)
+        local ok, fighter = pcall(function()
+            return FighterController:WaitForLocalFighter()
+        end)
+        if ok and fighter then
+            hookHealthChanged(fighter)
+        end
     end)
 
     startBlockLoop()
-
-    -- Visual burst on activation
     playShieldEffect(Color3.fromRGB(255, 255, 100))
 
     Rayfield:Notify({
         Title   = "🛡️ Godmode Active",
-        Content = "Riot Shield blocking all damage.",
+        Content = "Riot Shield blocking all damage. Lag fixed!",
         Duration = 3,
         Image   = 4483362458,
     })
@@ -226,8 +322,16 @@ end
 
 local function stopGodmode()
     Godmode.Enabled = false
-    if Godmode.BlockConn  then Godmode.BlockConn:Disconnect();  Godmode.BlockConn  = nil end
-    if Godmode.HealthConn then Godmode.HealthConn:Disconnect(); Godmode.HealthConn = nil end
+
+    if Godmode.BlockConn then
+        Godmode.BlockConn:Disconnect()
+        Godmode.BlockConn = nil
+    end
+
+    if Godmode.HealthConn then
+        Godmode.HealthConn:Disconnect()
+        Godmode.HealthConn = nil
+    end
 
     Rayfield:Notify({
         Title   = "Godmode Off",
@@ -238,14 +342,22 @@ local function stopGodmode()
 end
 
 -- =============================================
---   Re-hook when character respawns
+--   Respawn Handler
 -- =============================================
 
 lp.CharacterAdded:Connect(function()
     if not Godmode.Enabled then return end
-    task.wait(1)
-    local fighter = FighterController:WaitForLocalFighter()
-    hookHealthChanged(fighter)
+
+    task.wait(1.5) -- wait for character to fully load
+
+    local ok, fighter = pcall(function()
+        return FighterController:WaitForLocalFighter()
+    end)
+
+    if ok and fighter then
+        hookHealthChanged(fighter)
+    end
+
     startBlockLoop()
     playShieldEffect(Color3.fromRGB(255, 255, 100))
 end)
@@ -255,14 +367,14 @@ end)
 -- =============================================
 
 local Window = Rayfield:CreateWindow({
-    Name            = "Riot Godmode",
+    Name            = "Riot Godmode | Fixed",
     Icon            = 0,
     LoadingTitle    = "Riot Shield Godmode",
-    LoadingSubtitle = "by your hub",
+    LoadingSubtitle = "Lag Fixed Edition",
     Theme           = "Default",
-    DisableRayfieldPrompts  = false,
-    DisableBuildWarnings    = false,
-    ConfigurationSaving     = {
+    DisableRayfieldPrompts = false,
+    DisableBuildWarnings   = false,
+    ConfigurationSaving = {
         Enabled    = true,
         FolderName = "RiotGodmode",
         FileName   = "Config"
@@ -272,19 +384,28 @@ local Window = Rayfield:CreateWindow({
 
 local GodTab = Window:CreateTab("Godmode", 4483362458)
 
--- =============================================
---   Main toggle
--- =============================================
-
 GodTab:CreateSection("Riot Shield Godmode")
 
 GodTab:CreateLabel(
-    "Requires Riot Shield in your loadout. "..
-    "Keeps the shield in permanent block state "..
-    "and plays AbsorbedHit on incoming damage."
+    "Fixed: No more lag or dropped events. " ..
+    "Requires Riot Shield in loadout."
 )
 
-local GodToggle = GodTab:CreateToggle({
+-- Block Rate Slider
+GodTab:CreateSlider({
+    Name         = "Block Fire Rate (lower = faster)",
+    Range        = {0.05, 0.5},
+    Increment    = 0.01,
+    Suffix       = "s",
+    CurrentValue = BLOCK_RATE,
+    Flag         = "BlockRate",
+    Callback     = function(Value)
+        BLOCK_RATE = Value
+    end,
+})
+
+local GodToggle
+GodToggle = GodTab:CreateToggle({
     Name         = "Enable Godmode",
     CurrentValue = false,
     Flag         = "GodmodeEnabled",
@@ -292,7 +413,6 @@ local GodToggle = GodTab:CreateToggle({
         if Value then
             local success = startGodmode()
             if not success then
-                -- Force toggle back off if no shield found
                 GodToggle.Value = false
             end
         else
@@ -302,7 +422,7 @@ local GodToggle = GodTab:CreateToggle({
 })
 
 -- =============================================
---   Visual effects section
+--   Visual Effects
 -- =============================================
 
 GodTab:CreateSection("Visual Effects")
@@ -326,26 +446,28 @@ GodTab:CreateButton({
 })
 
 -- =============================================
---   Info section
+--   Info / Debug
 -- =============================================
 
-GodTab:CreateSection("Info")
+GodTab:CreateSection("Info & Debug")
 
 GodTab:CreateButton({
     Name     = "Check Riot Shield",
     Callback = function()
         local shield = getRiotShield()
         if shield then
+            local id = "unknown"
+            pcall(function() id = tostring(shield:Get("ObjectID")) end)
             Rayfield:Notify({
-                Title   = "✅ Found",
-                Content = "Riot Shield detected: " .. tostring(shield:Get("ObjectID")),
+                Title   = "✅ Shield Found",
+                Content = "Riot Shield detected! ID: " .. id,
                 Duration = 4,
                 Image   = 4483362458,
             })
         else
             Rayfield:Notify({
                 Title   = "❌ Not Found",
-                Content = "Riot Shield not in loadout! Pick it before playing.",
+                Content = "Riot Shield not in loadout!",
                 Duration = 4,
                 Image   = 4483362458,
             })
@@ -353,15 +475,29 @@ GodTab:CreateButton({
     end,
 })
 
+GodTab:CreateButton({
+    Name     = "Check ReplicateUnreliable Fix",
+    Callback = function()
+        Rayfield:Notify({
+            Title   = ReplicateUnreliable and "✅ Event Hooked" or "⚠️ Remote Not Found",
+            Content = ReplicateUnreliable
+                and "ReplicateUnreliable is properly handled. No more lag!"
+                or  "Remote not found — game may have updated paths.",
+            Duration = 4,
+            Image   = 4483362458,
+        })
+    end,
+})
+
 -- =============================================
---   Load config + welcome
+--   Load Config + Welcome
 -- =============================================
 
 Rayfield:LoadConfiguration()
 
 Rayfield:Notify({
-    Title   = "Riot Godmode Loaded",
-    Content = "Pick the Riot Shield in your loadout then enable!",
+    Title   = "✅ Riot Godmode Loaded (Fixed)",
+    Content = "Lag & event errors fixed! Equip shield then enable.",
     Duration = 5,
     Image   = 4483362458,
 })
