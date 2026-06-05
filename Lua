@@ -1,0 +1,367 @@
+-- =============================================
+--   Riot Shield Godmode — Rivals
+--   Rayfield UI
+--   Requires Riot Shield in loadout
+-- =============================================
+
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Players           = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService        = game:GetService("RunService")
+local lp                = Players.LocalPlayer
+
+-- =============================================
+--   Require modules
+-- =============================================
+
+local FighterController = require(lp.PlayerScripts.Controllers.FighterController)
+local EnumLibrary       = require(ReplicatedStorage.Modules.EnumLibrary)
+local Utility           = require(ReplicatedStorage.Modules.Utility)
+
+-- Riot Shield specific item module
+local RiotShieldModule
+pcall(function()
+    RiotShieldModule = require(lp.PlayerScripts.Modules.Items["Riot Shield"])
+end)
+
+-- CollectEffect visual function
+local CollectEffect
+pcall(function()
+    CollectEffect = require(lp.PlayerScripts.Modules.Functions.CollectEffect)
+end)
+
+-- =============================================
+--   Helpers
+-- =============================================
+
+-- Find the Riot Shield item in the fighter's inventory
+local function getRiotShield()
+    local fighter = FighterController.LocalFighter
+    if not fighter then return nil end
+
+    -- Check currently equipped item
+    if fighter.EquippedItem and fighter.EquippedItem.Name == "Riot Shield" then
+        return fighter.EquippedItem
+    end
+
+    -- Search all items in fighter
+    if fighter.Items then
+        for _, item in pairs(fighter.Items) do
+            if item.Name == "Riot Shield" then
+                return item
+            end
+        end
+    end
+
+    -- Also check Objects table
+    if FighterController.Objects then
+        for _, fighterObj in pairs(FighterController.Objects) do
+            if fighterObj.Player == lp and fighterObj.Items then
+                for _, item in pairs(fighterObj.Items) do
+                    if item.Name == "Riot Shield" then
+                        return item
+                    end
+                end
+            end
+        end
+    end
+
+    return nil
+end
+
+-- Plays the blue shield absorb particle at player position
+local function playShieldEffect(color)
+    if not CollectEffect then return end
+    local char = lp.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    pcall(function()
+        CollectEffect(
+            hrp.Position + Vector3.new(0, 2, 0),       -- spawn above player
+            color or Color3.fromRGB(80, 160, 255),      -- blue shield color
+            nil,                                         -- no sound
+            1.5                                          -- particle scale
+        )
+    end)
+end
+
+-- =============================================
+--   Godmode State
+-- =============================================
+
+local Godmode = {
+    Enabled     = false,
+    BlockConn   = nil,   -- heartbeat loop that spams block state
+    HealthConn  = nil,   -- listens for incoming damage
+    LastHealth  = nil,
+}
+
+-- =============================================
+--   Core: keep shield in blocking state
+--   Fires StartAiming (block) every heartbeat
+--   so the server always sees the shield as active
+-- =============================================
+
+local function startBlockLoop()
+    if Godmode.BlockConn then Godmode.BlockConn:Disconnect() end
+    Godmode.BlockConn = RunService.Heartbeat:Connect(function()
+        if not Godmode.Enabled then return end
+        local shield = getRiotShield()
+        if not shield then return end
+        pcall(function()
+            -- Continuously fire the shield's block/aim state
+            ReplicatedStorage.Remotes.Replication.Fighter.UseItem:FireServer(
+                shield:Get("ObjectID"),
+                EnumLibrary:ToEnum("StartAiming"),
+                {},
+                nil
+            )
+        end)
+    end)
+end
+
+-- =============================================
+--   Core: detect damage and trigger AbsorbedHit
+--   When health drops, fire StopAiming then
+--   StartAiming immediately to "re-block"
+-- =============================================
+
+local function hookHealthChanged(fighter)
+    if Godmode.HealthConn then Godmode.HealthConn:Disconnect() end
+    Godmode.LastHealth = fighter:Get("Health") or 100
+
+    Godmode.HealthConn = fighter.HealthChanged:Connect(function()
+        if not Godmode.Enabled then return end
+        local currentHealth = fighter:Get("Health") or 100
+
+        -- Damage detected
+        if currentHealth < (Godmode.LastHealth or currentHealth) then
+            local shield = getRiotShield()
+
+            -- Trigger AbsorbedHit animation on the Riot Shield viewmodel
+            if RiotShieldModule then
+                pcall(function()
+                    -- Find the local fighter's Riot Shield item instance
+                    local localFighterObj = FighterController:GetFighter(lp)
+                    if localFighterObj and localFighterObj.Items then
+                        for _, item in pairs(localFighterObj.Items) do
+                            if item.Name == "Riot Shield" then
+                                -- Trigger the client-side AbsorbedHit visual
+                                item:ReplicateFromServer("AbsorbedHit")
+                                break
+                            end
+                        end
+                    end
+                end)
+            end
+
+            -- Re-fire block to try to cancel the damage server-side
+            if shield then
+                pcall(function()
+                    -- Stop → Start immediately to reset block state
+                    ReplicatedStorage.Remotes.Replication.Fighter.UseItem:FireServer(
+                        shield:Get("ObjectID"),
+                        EnumLibrary:ToEnum("StopAiming"),
+                        {}, nil
+                    )
+                    task.wait()
+                    ReplicatedStorage.Remotes.Replication.Fighter.UseItem:FireServer(
+                        shield:Get("ObjectID"),
+                        EnumLibrary:ToEnum("StartAiming"),
+                        {}, nil
+                    )
+                end)
+            end
+
+            -- Blue shield effect on absorb
+            playShieldEffect(Color3.fromRGB(80, 160, 255))
+        else
+            -- Health went up or stayed same — green effect
+            playShieldEffect(Color3.fromRGB(80, 255, 120))
+        end
+
+        Godmode.LastHealth = currentHealth
+    end)
+end
+
+-- =============================================
+--   Start / Stop Godmode
+-- =============================================
+
+local function startGodmode()
+    -- Validate Riot Shield exists in loadout
+    local shield = getRiotShield()
+    if not shield then
+        Rayfield:Notify({
+            Title = "Riot Shield Required",
+            Content = "You need the Riot Shield in your loadout!",
+            Duration = 4,
+            Image   = 4483362458,
+        })
+        return false
+    end
+
+    Godmode.Enabled = true
+
+    task.spawn(function()
+        local fighter = FighterController:WaitForLocalFighter()
+        hookHealthChanged(fighter)
+    end)
+
+    startBlockLoop()
+
+    -- Visual burst on activation
+    playShieldEffect(Color3.fromRGB(255, 255, 100))
+
+    Rayfield:Notify({
+        Title   = "🛡️ Godmode Active",
+        Content = "Riot Shield blocking all damage.",
+        Duration = 3,
+        Image   = 4483362458,
+    })
+    return true
+end
+
+local function stopGodmode()
+    Godmode.Enabled = false
+    if Godmode.BlockConn  then Godmode.BlockConn:Disconnect();  Godmode.BlockConn  = nil end
+    if Godmode.HealthConn then Godmode.HealthConn:Disconnect(); Godmode.HealthConn = nil end
+
+    Rayfield:Notify({
+        Title   = "Godmode Off",
+        Content = "Shield godmode deactivated.",
+        Duration = 3,
+        Image   = 4483362458,
+    })
+end
+
+-- =============================================
+--   Re-hook when character respawns
+-- =============================================
+
+lp.CharacterAdded:Connect(function()
+    if not Godmode.Enabled then return end
+    task.wait(1)
+    local fighter = FighterController:WaitForLocalFighter()
+    hookHealthChanged(fighter)
+    startBlockLoop()
+    playShieldEffect(Color3.fromRGB(255, 255, 100))
+end)
+
+-- =============================================
+--   Rayfield UI
+-- =============================================
+
+local Window = Rayfield:CreateWindow({
+    Name            = "Riot Godmode",
+    Icon            = 0,
+    LoadingTitle    = "Riot Shield Godmode",
+    LoadingSubtitle = "by your hub",
+    Theme           = "Default",
+    DisableRayfieldPrompts  = false,
+    DisableBuildWarnings    = false,
+    ConfigurationSaving     = {
+        Enabled    = true,
+        FolderName = "RiotGodmode",
+        FileName   = "Config"
+    },
+    KeySystem = false,
+})
+
+local GodTab = Window:CreateTab("Godmode", 4483362458)
+
+-- =============================================
+--   Main toggle
+-- =============================================
+
+GodTab:CreateSection("Riot Shield Godmode")
+
+GodTab:CreateLabel(
+    "Requires Riot Shield in your loadout. "..
+    "Keeps the shield in permanent block state "..
+    "and plays AbsorbedHit on incoming damage."
+)
+
+local GodToggle = GodTab:CreateToggle({
+    Name         = "Enable Godmode",
+    CurrentValue = false,
+    Flag         = "GodmodeEnabled",
+    Callback     = function(Value)
+        if Value then
+            local success = startGodmode()
+            if not success then
+                -- Force toggle back off if no shield found
+                GodToggle.Value = false
+            end
+        else
+            stopGodmode()
+        end
+    end,
+})
+
+-- =============================================
+--   Visual effects section
+-- =============================================
+
+GodTab:CreateSection("Visual Effects")
+
+local EffectColor = Color3.fromRGB(80, 160, 255)
+
+GodTab:CreateColorPicker({
+    Name     = "Shield Effect Color",
+    Color    = Color3.fromRGB(80, 160, 255),
+    Flag     = "EffectColor",
+    Callback = function(Value)
+        EffectColor = Value
+    end,
+})
+
+GodTab:CreateButton({
+    Name     = "Test Effect",
+    Callback = function()
+        playShieldEffect(EffectColor)
+    end,
+})
+
+-- =============================================
+--   Info section
+-- =============================================
+
+GodTab:CreateSection("Info")
+
+GodTab:CreateButton({
+    Name     = "Check Riot Shield",
+    Callback = function()
+        local shield = getRiotShield()
+        if shield then
+            Rayfield:Notify({
+                Title   = "✅ Found",
+                Content = "Riot Shield detected: " .. tostring(shield:Get("ObjectID")),
+                Duration = 4,
+                Image   = 4483362458,
+            })
+        else
+            Rayfield:Notify({
+                Title   = "❌ Not Found",
+                Content = "Riot Shield not in loadout! Pick it before playing.",
+                Duration = 4,
+                Image   = 4483362458,
+            })
+        end
+    end,
+})
+
+-- =============================================
+--   Load config + welcome
+-- =============================================
+
+Rayfield:LoadConfiguration()
+
+Rayfield:Notify({
+    Title   = "Riot Godmode Loaded",
+    Content = "Pick the Riot Shield in your loadout then enable!",
+    Duration = 5,
+    Image   = 4483362458,
+})
