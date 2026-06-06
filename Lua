@@ -1,503 +1,1440 @@
 -- =============================================
---   Riot Shield Godmode — Rivals
---   Rayfield UI | Fixed & Optimized
---   by Pro Scripter Fix
+--   Rivals Hub — Full Feature Script
+--   UI: Linoria Library
+--   Built from scratch — Pro Scripter
 -- =============================================
 
-local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+local repo = "https://raw.githubusercontent.com/xyznick/UELinoriaLib/main/"
+local Library      = loadstring(game:HttpGet(repo .. "Library.lua"))()
+local ThemeManager = loadstring(game:HttpGet(repo .. "addons/ThemeManager.lua"))()
+local SaveManager  = loadstring(game:HttpGet(repo .. "addons/SaveManager.lua"))()
 
-local Players           = game:GetService("Players")
+local Options = getgenv().Options
+local Toggles = getgenv().Toggles
+
+Library.ShowCustomCursor  = true
+Library.NotifySide        = "Left"
+
+-- =============================================
+--   Services
+-- =============================================
+
+local Players        = game:GetService("Players")
+local RunService     = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService        = game:GetService("RunService")
-local lp                = Players.LocalPlayer
+local UserInputService = game:GetService("UserInputService")
+local lp            = Players.LocalPlayer
 
 -- =============================================
---   Safe Require Helper
+--   Window
 -- =============================================
 
-local function safeRequire(path)
-    local ok, result = pcall(require, path)
-    if ok then return result end
-    return nil
-end
+local Window = Library:CreateWindow({
+    Title           = "Rivals Hub",
+    Center          = true,
+    AutoShow        = true,
+    Resizable       = true,
+    ShowCustomCursor = true,
+    TabPadding      = 8,
+    MenuFadeTime    = 0.2,
+})
 
 -- =============================================
---   Require Modules
+--   Tabs
 -- =============================================
 
-local FighterController = safeRequire(lp.PlayerScripts:WaitForChild("Controllers"):WaitForChild("FighterController"))
-local EnumLibrary       = safeRequire(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("EnumLibrary"))
-local Utility           = safeRequire(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Utility"))
-
-local RiotShieldModule  = safeRequire(
-    lp.PlayerScripts:WaitForChild("Modules"):WaitForChild("Items"):WaitForChild("Riot Shield")
-)
-
-local CollectEffect     = safeRequire(
-    lp.PlayerScripts:WaitForChild("Modules"):WaitForChild("Functions"):WaitForChild("CollectEffect")
-)
-
--- =============================================
---   FIX #1 — Hook ReplicateUnreliable OnClientEvent
---   This was causing the "event dropped" error
---   and your friend's lag/not working issue
--- =============================================
-
-local ReplicateUnreliable = ReplicatedStorage
-    :WaitForChild("Remotes")
-    :WaitForChild("Replication")
-    :WaitForChild("Fighter")
-    :FindFirstChild("ReplicateUnreliable")
-
-if ReplicateUnreliable then
-    -- Properly handle incoming unreliable events
-    -- so the server doesn't drop/discard them
-    ReplicateUnreliable.OnClientEvent:Connect(function(...)
-        -- Silently consume the event
-        -- This stops the "did you forget to implement OnClientEvent?" error
-        -- and prevents the lag spike from event queue buildup
-    end)
-end
-
--- =============================================
---   Remote References (cached, not re-fetched every frame)
--- =============================================
-
-local UseItemRemote = ReplicatedStorage
-    :WaitForChild("Remotes")
-    :WaitForChild("Replication")
-    :WaitForChild("Fighter")
-    :WaitForChild("UseItem")
-
--- =============================================
---   FIX #2 — Throttle Rate
---   Instead of every Heartbeat (~60/s) we fire
---   every 0.1s which is plenty to hold block state
---   without spamming the server and causing lag
--- =============================================
-
-local BLOCK_RATE     = 0.12  -- seconds between each FireServer (was 0 = every frame = lag)
-local lastBlockFire  = 0
-
--- =============================================
---   Helpers
--- =============================================
-
-local function getRiotShield()
-    if not FighterController then return nil end
-
-    local fighter = FighterController.LocalFighter
-    if not fighter then return nil end
-
-    -- Check equipped item first
-    if fighter.EquippedItem and fighter.EquippedItem.Name == "Riot Shield" then
-        return fighter.EquippedItem
-    end
-
-    -- Search items table
-    if fighter.Items then
-        for _, item in pairs(fighter.Items) do
-            if item.Name == "Riot Shield" then
-                return item
-            end
-        end
-    end
-
-    -- Search FighterController.Objects
-    if FighterController.Objects then
-        for _, fighterObj in pairs(FighterController.Objects) do
-            if fighterObj.Player == lp and fighterObj.Items then
-                for _, item in pairs(fighterObj.Items) do
-                    if item.Name == "Riot Shield" then
-                        return item
-                    end
-                end
-            end
-        end
-    end
-
-    return nil
-end
-
-local function playShieldEffect(color)
-    if not CollectEffect then return end
-    local char = lp.Character
-    if not char then return end
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-    pcall(CollectEffect,
-        hrp.Position + Vector3.new(0, 2, 0),
-        color or Color3.fromRGB(80, 160, 255),
-        nil,
-        1.5
-    )
-end
-
--- =============================================
---   Godmode State
--- =============================================
-
-local Godmode = {
-    Enabled    = false,
-    BlockConn  = nil,
-    HealthConn = nil,
-    LastHealth = nil,
+local Tabs = {
+    Weapons     = Window:AddTab("⚔️ Weapons"),
+    VoidSpam    = Window:AddTab("🌀 Void Spam"),
+    Katana      = Window:AddTab("🗡️ Katana"),
+    Spoof       = Window:AddTab("👤 Spoof"),
+    Teleport    = Window:AddTab("🔀 Teleport"),
+    UISettings  = Window:AddTab("⚙️ UI Settings"),
 }
 
 -- =============================================
---   FIX #3 — Block Loop with Throttle
---   No longer fires every single frame
---   Uses delta time accumulation instead
+--   Helper: Safe Require
 -- =============================================
 
-local function startBlockLoop()
-    if Godmode.BlockConn then
-        Godmode.BlockConn:Disconnect()
-        Godmode.BlockConn = nil
+local function safeRequire(obj)
+    local ok, result = pcall(require, obj)
+    return ok and result or nil
+end
+
+-- ============================================================
+--   TAB 1 — WEAPONS
+-- ============================================================
+
+-- =============================================
+--   Weapon Module References
+-- =============================================
+
+local FighterController = safeRequire(
+    lp.PlayerScripts:WaitForChild("Controllers"):WaitForChild("FighterController")
+)
+
+local function getLocalFighter()
+    if not FighterController then return nil end
+    local ok, f = pcall(function()
+        return FighterController.LocalFighter
+    end)
+    return ok and f or nil
+end
+
+local function getAllItems()
+    local items = {}
+    local fighter = getLocalFighter()
+    if not fighter then return items end
+    if fighter.Items then
+        for _, item in pairs(fighter.Items) do
+            table.insert(items, item)
+        end
+    end
+    return items
+end
+
+local function getItemByName(name)
+    for _, item in pairs(getAllItems()) do
+        if item.Name == name then
+            return item
+        end
+    end
+    return nil
+end
+
+-- =============================================
+--   WEAPONS: Universal Gun Features
+-- =============================================
+
+local WeaponLeft  = Tabs.Weapons:AddLeftGroupbox("🔫 Universal Gun")
+local WeaponRight = Tabs.Weapons:AddRightGroupbox("🏹 Bow & 🗡️ Daggers")
+local MolotovBox  = Tabs.Weapons:AddLeftGroupbox("🔥 Molotov")
+local TripBox     = Tabs.Weapons:AddRightGroupbox("💣 Tripmines ESP")
+
+-- No Shoot Cooldown
+local noCooldownConn = nil
+WeaponLeft:AddToggle("NoShootCooldown", {
+    Text    = "No Shoot Cooldown",
+    Default = false,
+    Tooltip = "Removes shoot cooldown on all weapons",
+    Callback = function(val)
+        if val then
+            noCooldownConn = RunService.Heartbeat:Connect(function()
+                pcall(function()
+                    for _, item in pairs(getAllItems()) do
+                        if rawget(item, "_shoot_cooldown") ~= nil then
+                            item._shoot_cooldown = 0
+                        end
+                        if rawget(item, "_use_cooldown") ~= nil then
+                            item._use_cooldown = 0
+                        end
+                        if rawget(item, "_shoot_cooldown_no_ammo") ~= nil then
+                            item._shoot_cooldown_no_ammo = 0
+                        end
+                    end
+                end)
+            end)
+        else
+            if noCooldownConn then
+                noCooldownConn:Disconnect()
+                noCooldownConn = nil
+            end
+        end
+    end,
+})
+
+-- Instant Reload
+local instantReloadConn = nil
+WeaponLeft:AddToggle("InstantReload", {
+    Text    = "Instant Reload",
+    Default = false,
+    Tooltip = "Makes all weapons reload instantly",
+    Callback = function(val)
+        if val then
+            instantReloadConn = RunService.Heartbeat:Connect(function()
+                pcall(function()
+                    for _, item in pairs(getAllItems()) do
+                        if rawget(item, "_reload_cooldown") ~= nil then
+                            item._reload_cooldown = 0
+                        end
+                        if rawget(item, "_reload_cancel_cooldown") ~= nil then
+                            item._reload_cancel_cooldown = 0
+                        end
+                        if rawget(item, "_reload_cancel_expiration") ~= nil then
+                            item._reload_cancel_expiration = 0
+                        end
+                    end
+                end)
+            end)
+        else
+            if instantReloadConn then
+                instantReloadConn:Disconnect()
+                instantReloadConn = nil
+            end
+        end
+    end,
+})
+
+-- Infinite Ammo
+local infiniteAmmoConn = nil
+WeaponLeft:AddToggle("InfiniteAmmo", {
+    Text    = "Infinite Ammo",
+    Default = false,
+    Tooltip = "Hooks ammo signal to prevent running out",
+    Callback = function(val)
+        if val then
+            infiniteAmmoConn = RunService.Heartbeat:Connect(function()
+                pcall(function()
+                    local fighter = getLocalFighter()
+                    if not fighter then return end
+                    fighter:SetAttribute("InfiniteAmmoReserve", true)
+                    for _, item in pairs(getAllItems()) do
+                        pcall(function()
+                            if item:Get("Ammo") ~= nil and item:Get("Ammo") <= 1 then
+                                item:SimulateInputFromGameplayMechanic("StartReloading", true)
+                            end
+                        end)
+                    end
+                end)
+            end)
+        else
+            if infiniteAmmoConn then
+                infiniteAmmoConn:Disconnect()
+                infiniteAmmoConn = nil
+            end
+            pcall(function()
+                local fighter = getLocalFighter()
+                if fighter then
+                    fighter:SetAttribute("InfiniteAmmoReserve", false)
+                end
+            end)
+        end
+    end,
+})
+
+-- Rapid Burst Fire
+local rapidBurstConn = nil
+WeaponLeft:AddToggle("RapidBurst", {
+    Text    = "Rapid Burst Fire",
+    Default = false,
+    Tooltip = "Resets burst count every frame for max fire rate",
+    Callback = function(val)
+        if val then
+            rapidBurstConn = RunService.Heartbeat:Connect(function()
+                pcall(function()
+                    for _, item in pairs(getAllItems()) do
+                        if rawget(item, "_burst_count") ~= nil then
+                            item._burst_count = 0
+                        end
+                        if rawget(item, "_last_shot") ~= nil then
+                            item._last_shot = 0
+                        end
+                    end
+                end)
+            end)
+        else
+            if rapidBurstConn then
+                rapidBurstConn:Disconnect()
+                rapidBurstConn = nil
+            end
+        end
+    end,
+})
+
+-- =============================================
+--   WEAPONS: Bow Features
+-- =============================================
+
+WeaponRight:AddLabel("🏹 Bow Features")
+
+local instantChargeConn = nil
+WeaponRight:AddToggle("InstantCharge", {
+    Text    = "Instant Bow Charge",
+    Default = false,
+    Tooltip = "Forces bow to always be at max charge",
+    Callback = function(val)
+        if val then
+            instantChargeConn = RunService.Heartbeat:Connect(function()
+                pcall(function()
+                    local bow = getItemByName("Bow")
+                    if not bow then return end
+                    if rawget(bow, "_is_charging") ~= nil then
+                        bow._is_charging = true
+                    end
+                    if rawget(bow, "_charge_hash") ~= nil then
+                        bow._charge_hash = bow._charge_hash
+                    end
+                    if rawget(bow, "_shoot_cooldown") ~= nil then
+                        bow._shoot_cooldown = 0
+                    end
+                    if rawget(bow, "_reload_cooldown") ~= nil then
+                        bow._reload_cooldown = 0
+                    end
+                end)
+            end)
+        else
+            if instantChargeConn then
+                instantChargeConn:Disconnect()
+                instantChargeConn = nil
+            end
+        end
+    end,
+})
+
+WeaponRight:AddButton({
+    Text    = "Force Max Charge Now",
+    Tooltip = "Manually force the bow to max charge instantly",
+    Func    = function()
+        pcall(function()
+            local bow = getItemByName("Bow")
+            if not bow then
+                Library:Notify("Bow not found in loadout!", 3)
+                return
+            end
+            bow._is_charging        = true
+            bow._shoot_cooldown     = 0
+            bow._reload_cooldown    = 0
+            bow._charge_hash        = bow._charge_hash + 1
+            Library:Notify("Bow forced to max charge!", 3)
+        end)
+    end,
+})
+
+WeaponRight:AddDivider()
+
+-- =============================================
+--   WEAPONS: Daggers Features
+-- =============================================
+
+WeaponRight:AddLabel("🗡️ Daggers Features")
+
+local infiniteDaggersConn = nil
+WeaponRight:AddToggle("InfiniteDaggers", {
+    Text    = "Infinite Daggers",
+    Default = false,
+    Tooltip = "Prevents daggers from running out",
+    Callback = function(val)
+        if val then
+            infiniteDaggersConn = RunService.Heartbeat:Connect(function()
+                pcall(function()
+                    local daggers = getItemByName("Daggers")
+                    if not daggers then return end
+                    if rawget(daggers, "_reload_cooldown") ~= nil then
+                        daggers._reload_cooldown = 0
+                    end
+                    if rawget(daggers, "_shoot_cooldown") ~= nil then
+                        daggers._shoot_cooldown = 0
+                    end
+                    if rawget(daggers, "_reload_delay") ~= nil then
+                        daggers._reload_delay = 0
+                    end
+                end)
+            end)
+        else
+            if infiniteDaggersConn then
+                infiniteDaggersConn:Disconnect()
+                infiniteDaggersConn = nil
+            end
+        end
+    end,
+})
+
+local rapidDaggerConn = nil
+WeaponRight:AddToggle("RapidDaggers", {
+    Text    = "Rapid Dagger Throw",
+    Default = false,
+    Tooltip = "Removes throw cooldown for daggers",
+    Callback = function(val)
+        if val then
+            rapidDaggerConn = RunService.Heartbeat:Connect(function()
+                pcall(function()
+                    local daggers = getItemByName("Daggers")
+                    if not daggers then return end
+                    daggers._shoot_cooldown     = 0
+                    daggers._reload_cooldown    = 0
+                    daggers._burst_count        = 0
+                    daggers._last_shot          = 0
+                end)
+            end)
+        else
+            if rapidDaggerConn then
+                rapidDaggerConn:Disconnect()
+                rapidDaggerConn = nil
+            end
+        end
+    end,
+})
+
+-- =============================================
+--   WEAPONS: Molotov Custom Fire Color
+-- =============================================
+
+local MolotovColor = Color3.fromRGB(255, 80, 0)
+local molotovColorEnabled = false
+
+local function applyMolotovColor(color)
+    pcall(function()
+        for _, obj in pairs(workspace:GetDescendants()) do
+            if obj:IsA("ParticleEmitter") or obj:IsA("Fire") then
+                local parent = obj.Parent
+                if parent and (
+                    parent.Name:lower():find("molotov") or
+                    parent.Name:lower():find("fire") or
+                    parent.Name:lower():find("flame") or
+                    parent.Name:lower():find("explosion")
+                ) then
+                    pcall(function()
+                        if obj:IsA("Fire") then
+                            obj.Color     = color
+                            obj.SecondaryColor = color
+                        elseif obj:IsA("ParticleEmitter") then
+                            obj.Color = ColorSequence.new(color)
+                        end
+                    end)
+                end
+            end
+        end
+    end)
+end
+
+local molotovColorConn = nil
+MolotovBox:AddToggle("MolotovColorEnabled", {
+    Text    = "Custom Fire Color",
+    Default = false,
+    Tooltip = "Change the color of Molotov fire",
+    Callback = function(val)
+        molotovColorEnabled = val
+        if val then
+            molotovColorConn = RunService.Heartbeat:Connect(function()
+                applyMolotovColor(MolotovColor)
+            end)
+        else
+            if molotovColorConn then
+                molotovColorConn:Disconnect()
+                molotovColorConn = nil
+            end
+        end
+    end,
+})
+
+MolotovBox:AddLabel("Fire Color"):AddColorPicker("MolotovFireColor", {
+    Default  = Color3.fromRGB(255, 80, 0),
+    Title    = "Molotov Fire Color",
+    Callback = function(val)
+        MolotovColor = val
+    end,
+})
+
+MolotovBox:AddButton({
+    Text = "Apply Color Now",
+    Func = function()
+        applyMolotovColor(MolotovColor)
+        Library:Notify("Fire color applied!", 2)
+    end,
+})
+
+-- =============================================
+--   WEAPONS: Tripmines ESP
+-- =============================================
+
+local tripESPEnabled    = false
+local tripHighlights    = {}
+local tripBillboards    = {}
+local tripColorESP      = Color3.fromRGB(255, 50, 50)
+local tripDetectConn    = nil
+local tripESPConn       = nil
+
+local function cleanTripESP()
+    for _, h in pairs(tripHighlights) do pcall(function() h:Destroy() end) end
+    for _, b in pairs(tripBillboards) do pcall(function() b:Destroy() end) end
+    tripHighlights = {}
+    tripBillboards = {}
+end
+
+local function isTripmine(obj)
+    if not obj then return false end
+    local name = obj.Name:lower()
+    return name:find("tripmine") or name:find("subspace") or name:find("mine")
+end
+
+local function addTripESP(obj)
+    if not obj:IsA("Model") and not obj:IsA("BasePart") then return end
+    if not isTripmine(obj) then return end
+
+    -- Highlight
+    local highlight = Instance.new("SelectionBox")
+    highlight.Color3 = tripColorESP
+    highlight.LineThickness = 0.05
+    highlight.SurfaceTransparency = 0.6
+    highlight.SurfaceColor3 = tripColorESP
+    highlight.Adornee = obj
+    highlight.Parent = workspace
+    table.insert(tripHighlights, highlight)
+
+    -- Billboard
+    local part = obj:IsA("BasePart") and obj or obj:FindFirstChildWhichIsA("BasePart")
+    if part then
+        local billboard = Instance.new("BillboardGui")
+        billboard.AlwaysOnTop = true
+        billboard.Size        = UDim2.new(0, 120, 0, 40)
+        billboard.StudsOffset = Vector3.new(0, 3, 0)
+        billboard.Adornee     = part
+        billboard.Parent      = part
+
+        local label = Instance.new("TextLabel")
+        label.Size            = UDim2.new(1, 0, 1, 0)
+        label.BackgroundTransparency = 1
+        label.TextColor3      = tripColorESP
+        label.TextStrokeTransparency = 0
+        label.TextScaled      = true
+        label.Font            = Enum.Font.GothamBold
+        label.Text            = "⚠️ TRIPMINE"
+        label.Parent          = billboard
+
+        -- Distance updater
+        local distConn
+        distConn = RunService.RenderStepped:Connect(function()
+            if not part or not part.Parent then
+                distConn:Disconnect()
+                pcall(function() billboard:Destroy() end)
+                return
+            end
+            local char = lp.Character
+            if char then
+                local hrp = char:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    local dist = math.floor((hrp.Position - part.Position).Magnitude)
+                    label.Text = "⚠️ TRIPMINE\n" .. dist .. " studs"
+                end
+            end
+        end)
+
+        table.insert(tripBillboards, billboard)
     end
 
-    local accum = 0
+    -- Auto remove when mine is destroyed
+    obj.AncestryChanged:Connect(function()
+        if not obj:IsDescendantOf(workspace) then
+            pcall(function() highlight:Destroy() end)
+        end
+    end)
+end
 
-    Godmode.BlockConn = RunService.Heartbeat:Connect(function(dt)
-        if not Godmode.Enabled then return end
+local function scanTripmines()
+    for _, obj in pairs(workspace:GetDescendants()) do
+        if isTripmine(obj) then
+            addTripESP(obj)
+        end
+    end
+end
 
-        accum = accum + dt
+TripBox:AddToggle("TripmineESP", {
+    Text    = "Tripmine ESP",
+    Default = false,
+    Tooltip = "Shows all placed tripmines with distance",
+    Callback = function(val)
+        tripESPEnabled = val
+        if val then
+            scanTripmines()
+            -- Auto detect new tripmines
+            tripDetectConn = workspace.DescendantAdded:Connect(function(obj)
+                if isTripmine(obj) then
+                    task.wait(0.1)
+                    addTripESP(obj)
+                    Library:Notify("⚠️ Tripmine Placed!", 3)
+                end
+            end)
+        else
+            cleanTripESP()
+            if tripDetectConn then
+                tripDetectConn:Disconnect()
+                tripDetectConn = nil
+            end
+        end
+    end,
+})
 
-        -- Only fire every BLOCK_RATE seconds
-        if accum < BLOCK_RATE then return end
-        accum = 0
+TripBox:AddLabel("ESP Color"):AddColorPicker("TripESPColor", {
+    Default  = Color3.fromRGB(255, 50, 50),
+    Title    = "Tripmine ESP Color",
+    Callback = function(val)
+        tripColorESP = val
+        for _, h in pairs(tripHighlights) do
+            pcall(function()
+                h.Color3        = val
+                h.SurfaceColor3 = val
+            end)
+        end
+        for _, b in pairs(tripBillboards) do
+            pcall(function()
+                local label = b:FindFirstChildWhichIsA("TextLabel")
+                if label then label.TextColor3 = val end
+            end)
+        end
+    end,
+})
 
-        local shield = getRiotShield()
-        if not shield then return end
+TripBox:AddButton({
+    Text = "Rescan Tripmines",
+    Func = function()
+        cleanTripESP()
+        scanTripmines()
+        Library:Notify("Tripmines rescanned!", 2)
+    end,
+})
 
-        local objectID
-        local ok = pcall(function()
-            objectID = shield:Get("ObjectID")
-        end)
-        if not ok or not objectID then return end
+TripBox:AddToggle("TripNoCD", {
+    Text    = "No Place Cooldown",
+    Default = false,
+    Tooltip = "Remove tripmine placement cooldown",
+    Callback = function(val)
+        if val then
+            RunService.Heartbeat:Connect(function()
+                pcall(function()
+                    local trip = getItemByName("Subspace Tripmine")
+                        or getItemByName("Tripmine")
+                    if trip and rawget(trip, "_use_cooldown") then
+                        trip._use_cooldown = 0
+                    end
+                end)
+            end)
+        end
+    end,
+})
 
-        -- FIX #4 — Use FireServer safely with proper enum
-        -- Wrapped to prevent any errors from crashing the loop
+-- ============================================================
+--   TAB 2 — VOID SPAM (4 OP Features)
+-- ============================================================
+
+local VoidLeft  = Tabs.VoidSpam:AddLeftGroupbox("🌀 Void Spam")
+local VoidRight = Tabs.VoidSpam:AddRightGroupbox("⚙️ Void Settings")
+
+local hrp_vs        = nil
+local clientC_vs    = nil
+local clientV_vs    = nil
+local clientVA_vs   = nil
+local voidActive    = false
+local voidHBConn    = nil
+local voidRSConn    = nil
+
+-- Void intensity slider
+local VoidIntensity = 2147483646
+local VoidMinExclude = 1147483646
+
+VoidRight:AddSlider("VoidIntensity", {
+    Text    = "Void Intensity",
+    Default = 100,
+    Min     = 1,
+    Max     = 100,
+    Rounding = 0,
+    Tooltip  = "How extreme the void teleports are (100 = max chaos)",
+    Callback = function(val)
+        local scale = val / 100
+        VoidIntensity    = math.floor(2147483646 * scale)
+        VoidMinExclude   = math.floor(1147483646 * scale)
+    end,
+})
+
+local function betterRandom(mi, ma, dmi, dma)
+    local val = math.random(mi, ma)
+    local attempts = 0
+    repeat
+        val = math.random(mi, ma)
+        attempts = attempts + 1
+    until val < dmi or val > dma or attempts > 20
+    return val
+end
+
+local function startVoidSpam()
+    voidActive = true
+
+    voidHBConn = RunService.Heartbeat:Connect(function()
         pcall(function()
-            UseItemRemote:FireServer(
-                objectID,
-                EnumLibrary:ToEnum("StartAiming"),
-                {},
-                nil
+            hrp_vs  = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
+            if not hrp_vs then return end
+            clientC_vs  = hrp_vs.CFrame
+            clientV_vs  = hrp_vs.AssemblyLinearVelocity
+            clientVA_vs = hrp_vs.AssemblyAngularVelocity
+
+            local ri = VoidIntensity
+            local re = VoidMinExclude
+
+            hrp_vs.CFrame = CFrame.new(
+                betterRandom(-ri, ri, -re, re),
+                betterRandom(-ri, ri, -re, re),
+                betterRandom(-ri, ri, -re, re)
+            ) * CFrame.Angles(
+                math.rad(math.pi),
+                math.rad(math.pi),
+                math.rad(math.pi)
+            )
+            hrp_vs.AssemblyLinearVelocity = Vector3.new(
+                betterRandom(-ri, ri, -re, re),
+                betterRandom(-ri, ri, -re, re),
+                betterRandom(-ri, ri, -re, re)
+            )
+            hrp_vs.AssemblyAngularVelocity = Vector3.new(
+                betterRandom(-ri, ri, -re, re),
+                betterRandom(-ri, ri, -re, re),
+                betterRandom(-ri, ri, -re, re)
             )
         end)
     end)
+
+    RunService:BindToRenderStep("VoidSync", Enum.RenderPriority.First.Value, function()
+        if hrp_vs and clientC_vs then
+            pcall(function()
+                hrp_vs.CFrame                  = clientC_vs
+                hrp_vs.AssemblyLinearVelocity  = clientV_vs
+                hrp_vs.AssemblyAngularVelocity = clientVA_vs
+            end)
+        end
+    end)
+end
+
+local function stopVoidSpam()
+    voidActive = false
+    if voidHBConn then
+        voidHBConn:Disconnect()
+        voidHBConn = nil
+    end
+    pcall(function()
+        RunService:UnbindFromRenderStep("VoidSync")
+    end)
+    hrp_vs = nil
 end
 
 -- =============================================
---   FIX #5 — Health Hook with proper nil checks
+--   FEATURE 1: Standard Void Spam
 -- =============================================
 
-local function hookHealthChanged(fighter)
-    if not fighter then return end
+VoidLeft:AddToggle("VoidSpam", {
+    Text    = "Void Spam (Standard)",
+    Default = false,
+    Tooltip = "TP to void every frame then sync back — confuses server",
+    Callback = function(val)
+        if val then
+            startVoidSpam()
+            Library:Notify("🌀 Void Spam Active!", 3)
+        else
+            stopVoidSpam()
+            Library:Notify("Void Spam Off", 2)
+        end
+    end,
+})
 
-    if Godmode.HealthConn then
-        Godmode.HealthConn:Disconnect()
-        Godmode.HealthConn = nil
+-- =============================================
+--   FEATURE 2: Direction Chaos
+--   Constantly changes look direction = confuses
+--   hit detection and aim assist
+-- =============================================
+
+local dirChaosConn = nil
+VoidLeft:AddToggle("DirectionChaos", {
+    Text    = "Direction Chaos",
+    Default = false,
+    Tooltip = "Randomly rotates your look direction every frame — breaks hit detection",
+    Callback = function(val)
+        if val then
+            dirChaosConn = RunService.Heartbeat:Connect(function()
+                pcall(function()
+                    local char = lp.Character
+                    if not char then return end
+                    local hrp = char:FindFirstChild("HumanoidRootPart")
+                    if not hrp then return end
+
+                    -- Save position, only randomize angles
+                    local pos = hrp.CFrame.Position
+                    hrp.CFrame = CFrame.new(pos) * CFrame.Angles(
+                        math.rad(math.random(-180, 180)),
+                        math.rad(math.random(-180, 180)),
+                        math.rad(math.random(-180, 180))
+                    )
+                end)
+            end)
+        else
+            if dirChaosConn then
+                dirChaosConn:Disconnect()
+                dirChaosConn = nil
+            end
+        end
+    end,
+})
+
+-- =============================================
+--   FEATURE 3: Velocity Spike
+--   Randomly spikes velocity to insane values
+--   makes projectiles miss completely
+-- =============================================
+
+local velSpikeConn = nil
+local VelSpikeRate = 0.05
+
+VoidRight:AddSlider("VelSpikeRate", {
+    Text     = "Velocity Spike Rate",
+    Default  = 5,
+    Min      = 1,
+    Max      = 10,
+    Rounding = 0,
+    Suffix   = "x",
+    Tooltip  = "How often velocity spikes happen",
+    Callback = function(val)
+        VelSpikeRate = 0.1 / val
+    end,
+})
+
+local lastSpike = 0
+VoidLeft:AddToggle("VelocitySpike", {
+    Text    = "Velocity Spike",
+    Default = false,
+    Tooltip = "Randomly spikes your velocity — makes projectiles miss you",
+    Callback = function(val)
+        if val then
+            velSpikeConn = RunService.Heartbeat:Connect(function()
+                if tick() - lastSpike < VelSpikeRate then return end
+                lastSpike = tick()
+                pcall(function()
+                    local char = lp.Character
+                    if not char then return end
+                    local hrp = char:FindFirstChild("HumanoidRootPart")
+                    if not hrp then return end
+
+                    local ri = VoidIntensity
+                    local re = VoidMinExclude
+                    hrp.AssemblyLinearVelocity = Vector3.new(
+                        betterRandom(-ri, ri, -re, re),
+                        betterRandom(-ri, ri, -re, re),
+                        betterRandom(-ri, ri, -re, re)
+                    )
+                end)
+            end)
+        else
+            if velSpikeConn then
+                velSpikeConn:Disconnect()
+                velSpikeConn = nil
+            end
+        end
+    end,
+})
+
+-- =============================================
+--   FEATURE 4: Full Chaos Mode
+--   All 3 combined + extra random CFrame spin
+--   Maximum server confusion
+-- =============================================
+
+local chaosModeActive = false
+VoidLeft:AddToggle("FullChaosMode", {
+    Text    = "☠️ FULL CHAOS MODE",
+    Default = false,
+    Tooltip = "Void Spam + Direction Chaos + Velocity Spike ALL at once — MAX confusion",
+    Risky   = true,
+    Callback = function(val)
+        chaosModeActive = val
+        -- Toggle all sub-features
+        Toggles.VoidSpam:SetValue(val)
+        Toggles.DirectionChaos:SetValue(val)
+        Toggles.VelocitySpike:SetValue(val)
+        if val then
+            Library:Notify("☠️ FULL CHAOS MODE ACTIVE", 4)
+        else
+            Library:Notify("Chaos Mode Off", 2)
+        end
+    end,
+})
+
+VoidLeft:AddDivider()
+
+VoidLeft:AddButton({
+    Text = "Stop All Void Features",
+    Func = function()
+        Toggles.VoidSpam:SetValue(false)
+        Toggles.DirectionChaos:SetValue(false)
+        Toggles.VelocitySpike:SetValue(false)
+        Toggles.FullChaosMode:SetValue(false)
+        Library:Notify("All void features stopped!", 2)
+    end,
+})
+
+-- ============================================================
+--   TAB 3 — KATANA
+-- ============================================================
+
+local KatLeft  = Tabs.Katana:AddLeftGroupbox("🗡️ Katana Fast Deflect")
+local KatRight = Tabs.Katana:AddRightGroupbox("ℹ️ Info")
+
+local katanaLoopActive  = false
+local katanaLoopThread  = nil
+
+local function setFastKatanaDeflect()
+    task.wait(0.01)
+
+    -- Method 1: GC scan
+    for _, v in pairs(getgc(true)) do
+        if type(v) == "table" then
+            if rawget(v, "DeflectCooldown") then
+                rawset(v, "DeflectCooldown", 0.01)
+            end
+            if rawget(v, "DeflectDuration") then
+                rawset(v, "DeflectDuration", 0.01)
+            end
+        end
     end
 
-    local ok, hp = pcall(function()
-        return fighter:Get("Health")
-    end)
-    Godmode.LastHealth = (ok and hp) or 100
+    task.wait(0.01)
 
-    -- FIX: Check the signal exists before connecting
-    if not fighter.HealthChanged then return end
-
-    Godmode.HealthConn = fighter.HealthChanged:Connect(function()
-        if not Godmode.Enabled then return end
-
-        local currentHealth
-        local ok2, result = pcall(function()
-            return fighter:Get("Health")
-        end)
-        currentHealth = (ok2 and result) or 100
-
-        if currentHealth < (Godmode.LastHealth or currentHealth) then
-            local shield = getRiotShield()
-
-            -- Trigger AbsorbedHit visual
-            pcall(function()
-                local localFighterObj = FighterController:GetFighter(lp)
-                if localFighterObj and localFighterObj.Items then
-                    for _, item in pairs(localFighterObj.Items) do
-                        if item.Name == "Riot Shield" then
-                            item:ReplicateFromServer("AbsorbedHit")
-                            break
+    -- Method 2: ItemLibrary
+    pcall(function()
+        local Modules = ReplicatedStorage:FindFirstChild("Modules")
+        if Modules then
+            local lib = Modules:FindFirstChild("ItemLibrary")
+                or Modules:FindFirstChild("ItemLibrary", true)
+            if lib then
+                local ItemLibrary = require(lib)
+                if ItemLibrary and ItemLibrary.Items then
+                    for _, item in pairs(ItemLibrary.Items) do
+                        if item.Name and string.find(item.Name:lower(), "katana") then
+                            item.DeflectCooldown = 0.01
+                            item.DeflectDuration = 0.01
                         end
                     end
                 end
+            end
+        end
+    end)
+
+    task.wait(0.01)
+
+    -- Method 3: Hook Melee.new
+    pcall(function()
+        local MeleeModule = safeRequire(
+            lp.PlayerScripts.Modules.ItemTypes.Melee
+        )
+        if not MeleeModule then return end
+        local oldNew = MeleeModule.new
+        MeleeModule.new = function(...)
+            local self = oldNew(...)
+            if self and self.Info and self.Info.Name
+                and string.find(self.Info.Name:lower(), "katana") then
+                self.Info.DeflectCooldown = 0.01
+                self.Info.DeflectDuration = 0.8
+            end
+            return self
+        end
+    end)
+end
+
+KatLeft:AddToggle("KatanaFastDeflect", {
+    Text    = "Fast Katana Deflect",
+    Default = false,
+    Tooltip = "Removes deflect cooldown and duration for katana",
+    Callback = function(val)
+        katanaLoopActive = val
+        if val then
+            task.wait(0.5)
+            setFastKatanaDeflect()
+            katanaLoopThread = task.spawn(function()
+                while katanaLoopActive do
+                    task.wait(3)
+                    if katanaLoopActive then
+                        pcall(setFastKatanaDeflect)
+                    end
+                end
+            end)
+            Library:Notify("🗡️ Fast Katana Deflect Active!", 3)
+        else
+            if katanaLoopThread then
+                pcall(task.cancel, katanaLoopThread)
+                katanaLoopThread = nil
+            end
+            Library:Notify("Katana Deflect Off", 2)
+        end
+    end,
+})
+
+KatLeft:AddButton({
+    Text = "Apply Once Now",
+    Func = function()
+        task.spawn(setFastKatanaDeflect)
+        Library:Notify("Katana deflect applied!", 2)
+    end,
+})
+
+KatRight:AddLabel("This removes the DeflectCooldown\nand DeflectDuration from the\nKatana item module.\n\nRe-applies every 3 seconds\nto stay active after respawn.", true)
+
+-- ============================================================
+--   TAB 4 — SPOOF
+-- ============================================================
+
+local SpoofLeft  = Tabs.Spoof:AddLeftGroupbox("👤 Name Spoof")
+local SpoofRight = Tabs.Spoof:AddRightGroupbox("🏆 Level Spoof")
+
+-- =============================================
+--   Spoof Config
+-- =============================================
+
+local spoofConfig = {
+    enabled     = false,
+    clientName  = "kicia",
+    enemyName   = "rivalscheats.shop",
+    levelSpoof  = 1381,
+    levelEnabled = false,
+}
+
+local cachedSpoofPlayers = {}
+local spoofLevelConn     = nil
+
+-- Name Spoof Toggle
+SpoofLeft:AddToggle("NameSpoofEnabled", {
+    Text    = "Enable Name Spoof",
+    Default = false,
+    Tooltip = "Spoofs your name and all enemy names",
+    Callback = function(val)
+        spoofConfig.enabled = val
+        if val then
+            -- Spoof local player
+            pcall(function()
+                lp.Name        = spoofConfig.clientName
+                lp.DisplayName = spoofConfig.clientName
             end)
 
-            -- FIX #6 — Re-block: use task.defer instead of task.wait()
-            -- task.wait() with no arg can cause inconsistent timing
-            if shield then
-                pcall(function()
-                    local objectID = shield:Get("ObjectID")
-
-                    UseItemRemote:FireServer(
-                        objectID,
-                        EnumLibrary:ToEnum("StopAiming"),
-                        {}, nil
-                    )
-
-                    -- defer to next frame instead of task.wait()
-                    task.defer(function()
-                        pcall(function()
-                            UseItemRemote:FireServer(
-                                objectID,
-                                EnumLibrary:ToEnum("StartAiming"),
-                                {}, nil
-                            )
-                        end)
+            -- Spoof all current players
+            for _, player in pairs(Players:GetPlayers()) do
+                if player ~= lp and not table.find(cachedSpoofPlayers, player) then
+                    pcall(function()
+                        player.Name        = spoofConfig.enemyName
+                        player.DisplayName = spoofConfig.enemyName
                     end)
-                end)
+                end
             end
 
-            playShieldEffect(Color3.fromRGB(80, 160, 255))
-
+            Library:Notify("Name spoof active!", 3)
         else
-            playShieldEffect(Color3.fromRGB(80, 255, 120))
+            Library:Notify("Name spoof off — rejoin to reset names", 3)
         end
+    end,
+})
 
-        Godmode.LastHealth = currentHealth
-    end)
-end
+-- Your Name Input
+SpoofLeft:AddInput("YourSpoofName", {
+    Default          = "kicia",
+    Numeric          = false,
+    Finished         = true,
+    Text             = "Your Spoofed Name",
+    Placeholder      = "Enter your spoof name",
+    ClearTextOnFocus = false,
+    Callback = function(val)
+        spoofConfig.clientName = val
+        if spoofConfig.enabled then
+            pcall(function()
+                lp.Name        = val
+                lp.DisplayName = val
+            end)
+        end
+    end,
+})
 
--- =============================================
---   Start / Stop Godmode
--- =============================================
+-- Enemy Name Input
+SpoofLeft:AddInput("EnemySpoofName", {
+    Default          = "rivalscheats.shop",
+    Numeric          = false,
+    Finished         = true,
+    Text             = "Enemy Spoofed Name",
+    Placeholder      = "Enter enemy spoof name",
+    ClearTextOnFocus = false,
+    Callback = function(val)
+        spoofConfig.enemyName = val
+    end,
+})
 
-local function startGodmode()
-    local shield = getRiotShield()
+SpoofLeft:AddButton({
+    Text = "Apply Names Now",
+    Func = function()
+        if not spoofConfig.enabled then
+            Library:Notify("Enable Name Spoof first!", 2)
+            return
+        end
+        pcall(function() lp.Name = spoofConfig.clientName end)
+        pcall(function() lp.DisplayName = spoofConfig.clientName end)
+        for _, player in pairs(Players:GetPlayers()) do
+            if player ~= lp then
+                pcall(function()
+                    player.Name        = spoofConfig.enemyName
+                    player.DisplayName = spoofConfig.enemyName
+                end)
+            end
+        end
+        Library:Notify("Names applied!", 2)
+    end,
+})
 
-    if not shield then
-        Rayfield:Notify({
-            Title   = "Riot Shield Required",
-            Content = "Equip the Riot Shield in your loadout first!",
-            Duration = 4,
-            Image   = 4483362458,
-        })
-        return false
-    end
-
-    if not FighterController then
-        Rayfield:Notify({
-            Title   = "Module Error",
-            Content = "FighterController failed to load.",
-            Duration = 4,
-            Image   = 4483362458,
-        })
-        return false
-    end
-
-    Godmode.Enabled = true
-
-    -- Hook health in background
-    task.spawn(function()
-        local ok, fighter = pcall(function()
-            return FighterController:WaitForLocalFighter()
+-- Auto spoof new players
+Players.PlayerAdded:Connect(function(player)
+    if spoofConfig.enabled and player ~= lp then
+        task.wait(0.1)
+        pcall(function()
+            player.Name        = spoofConfig.enemyName
+            player.DisplayName = spoofConfig.enemyName
         end)
-        if ok and fighter then
-            hookHealthChanged(fighter)
-        end
-    end)
-
-    startBlockLoop()
-    playShieldEffect(Color3.fromRGB(255, 255, 100))
-
-    Rayfield:Notify({
-        Title   = "🛡️ Godmode Active",
-        Content = "Riot Shield blocking all damage. Lag fixed!",
-        Duration = 3,
-        Image   = 4483362458,
-    })
-    return true
-end
-
-local function stopGodmode()
-    Godmode.Enabled = false
-
-    if Godmode.BlockConn then
-        Godmode.BlockConn:Disconnect()
-        Godmode.BlockConn = nil
     end
-
-    if Godmode.HealthConn then
-        Godmode.HealthConn:Disconnect()
-        Godmode.HealthConn = nil
-    end
-
-    Rayfield:Notify({
-        Title   = "Godmode Off",
-        Content = "Shield godmode deactivated.",
-        Duration = 3,
-        Image   = 4483362458,
-    })
-end
-
--- =============================================
---   Respawn Handler
--- =============================================
-
-lp.CharacterAdded:Connect(function()
-    if not Godmode.Enabled then return end
-
-    task.wait(1.5) -- wait for character to fully load
-
-    local ok, fighter = pcall(function()
-        return FighterController:WaitForLocalFighter()
-    end)
-
-    if ok and fighter then
-        hookHealthChanged(fighter)
-    end
-
-    startBlockLoop()
-    playShieldEffect(Color3.fromRGB(255, 255, 100))
 end)
 
 -- =============================================
---   Rayfield UI
+--   Level Spoof
 -- =============================================
 
-local Window = Rayfield:CreateWindow({
-    Name            = "Riot Godmode | Fixed",
-    Icon            = 0,
-    LoadingTitle    = "Riot Shield Godmode",
-    LoadingSubtitle = "Lag Fixed Edition",
-    Theme           = "Default",
-    DisableRayfieldPrompts = false,
-    DisableBuildWarnings   = false,
-    ConfigurationSaving = {
-        Enabled    = true,
-        FolderName = "RiotGodmode",
-        FileName   = "Config"
-    },
-    KeySystem = false,
-})
-
-local GodTab = Window:CreateTab("Godmode", 4483362458)
-
-GodTab:CreateSection("Riot Shield Godmode")
-
-GodTab:CreateLabel(
-    "Fixed: No more lag or dropped events. " ..
-    "Requires Riot Shield in loadout."
-)
-
--- Block Rate Slider
-GodTab:CreateSlider({
-    Name         = "Block Fire Rate (lower = faster)",
-    Range        = {0.05, 0.5},
-    Increment    = 0.01,
-    Suffix       = "s",
-    CurrentValue = BLOCK_RATE,
-    Flag         = "BlockRate",
-    Callback     = function(Value)
-        BLOCK_RATE = Value
-    end,
-})
-
-local GodToggle
-GodToggle = GodTab:CreateToggle({
-    Name         = "Enable Godmode",
-    CurrentValue = false,
-    Flag         = "GodmodeEnabled",
-    Callback     = function(Value)
-        if Value then
-            local success = startGodmode()
-            if not success then
-                GodToggle.Value = false
+SpoofRight:AddToggle("LevelSpoofEnabled", {
+    Text    = "Enable Level Spoof",
+    Default = false,
+    Tooltip = "Spoofs your level every heartbeat",
+    Callback = function(val)
+        spoofConfig.levelEnabled = val
+        if val then
+            -- Validate level attr exists
+            if not lp:GetAttribute("Level") then
+                Library:Notify("Level attribute not found!", 3)
+                Toggles.LevelSpoofEnabled:SetValue(false)
+                return
             end
+
+            spoofLevelConn = RunService.Heartbeat:Connect(function()
+                pcall(function()
+                    local stats = lp:FindFirstChild("CustomLeaderstats")
+                    if stats then
+                        local lvl = stats:FindFirstChild("Level")
+                        if lvl then
+                            lvl.Value = spoofConfig.levelSpoof
+                        end
+                    end
+                    lp:SetAttribute("Level", spoofConfig.levelSpoof)
+                end)
+            end)
+            Library:Notify("Level spoof active: " .. spoofConfig.levelSpoof, 3)
         else
-            stopGodmode()
+            if spoofLevelConn then
+                spoofLevelConn:Disconnect()
+                spoofLevelConn = nil
+            end
+            Library:Notify("Level spoof off", 2)
         end
     end,
 })
 
--- =============================================
---   Visual Effects
--- =============================================
-
-GodTab:CreateSection("Visual Effects")
-
-local EffectColor = Color3.fromRGB(80, 160, 255)
-
-GodTab:CreateColorPicker({
-    Name     = "Shield Effect Color",
-    Color    = Color3.fromRGB(80, 160, 255),
-    Flag     = "EffectColor",
-    Callback = function(Value)
-        EffectColor = Value
+SpoofRight:AddSlider("SpoofLevel", {
+    Text     = "Spoof Level",
+    Default  = 1381,
+    Min      = 1,
+    Max      = 9999,
+    Rounding = 0,
+    Tooltip  = "The level to display",
+    Callback = function(val)
+        spoofConfig.levelSpoof = val
     end,
 })
 
-GodTab:CreateButton({
-    Name     = "Test Effect",
-    Callback = function()
-        playShieldEffect(EffectColor)
+SpoofRight:AddButton({
+    Text = "Apply Level Now",
+    Func = function()
+        pcall(function()
+            local stats = lp:FindFirstChild("CustomLeaderstats")
+            if stats then
+                local lvl = stats:FindFirstChild("Level")
+                if lvl then lvl.Value = spoofConfig.levelSpoof end
+            end
+            lp:SetAttribute("Level", spoofConfig.levelSpoof)
+        end)
+        Library:Notify("Level set to " .. spoofConfig.levelSpoof, 2)
     end,
 })
 
+-- ============================================================
+--   TAB 5 — TELEPORT
+-- ============================================================
+
+local TpLeft  = Tabs.Teleport:AddLeftGroupbox("🔀 Player Teleport")
+local TpRight = Tabs.Teleport:AddRightGroupbox("⚙️ Teleport Settings")
+
+local tpConfig = {
+    autoTP      = false,
+    autoTarget  = nil,
+    autoDelay   = 1,
+    onlyInGame  = true, -- VisibleCheck: skip lobby players
+}
+
+local autoTPThread = nil
+
 -- =============================================
---   Info / Debug
+--   Visible Check — is player in game (not lobby)
 -- =============================================
 
-GodTab:CreateSection("Info & Debug")
+local function isPlayerInGame(player)
+    if not tpConfig.onlyInGame then return true end
+    if player == lp then return false end
 
-GodTab:CreateButton({
-    Name     = "Check Riot Shield",
-    Callback = function()
-        local shield = getRiotShield()
-        if shield then
-            local id = "unknown"
-            pcall(function() id = tostring(shield:Get("ObjectID")) end)
-            Rayfield:Notify({
-                Title   = "✅ Shield Found",
-                Content = "Riot Shield detected! ID: " .. id,
-                Duration = 4,
-                Image   = 4483362458,
-            })
+    local char = player.Character
+    if not char then return false end
+
+    -- Check humanoid exists and is alive
+    local hum = char:FindFirstChildWhichIsA("Humanoid")
+    if not hum then return false end
+    if hum.Health <= 0 then return false end
+
+    -- Check character is in workspace (not lobby area)
+    if not char:IsDescendantOf(workspace) then return false end
+
+    -- Check HRP exists
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return false end
+
+    -- Check player is visible (not too far = lobby spawn)
+    local myChar = lp.Character
+    if myChar then
+        local myHRP = myChar:FindFirstChild("HumanoidRootPart")
+        if myHRP then
+            local dist = (myHRP.Position - hrp.Position).Magnitude
+            -- If more than 5000 studs they are probably in lobby
+            if dist > 5000 then return false end
+        end
+    end
+
+    return true
+end
+
+local function teleportToPlayer(player)
+    if not isPlayerInGame(player) then
+        Library:Notify("⚠️ " .. player.Name .. " is in lobby — skipped!", 3)
+        return false
+    end
+
+    local char    = player.Character
+    local myChar  = lp.Character
+    if not char or not myChar then return false end
+
+    local targetHRP = char:FindFirstChild("HumanoidRootPart")
+    local myHRP     = myChar:FindFirstChild("HumanoidRootPart")
+    if not targetHRP or not myHRP then return false end
+
+    -- TP to player head position
+    local headOffset = Vector3.new(0, 3, 0)
+    myHRP.CFrame = CFrame.new(targetHRP.Position + headOffset)
+    Library:Notify("Teleported to " .. player.Name, 2)
+    return true
+end
+
+-- Player dropdown
+local function getPlayerList()
+    local list = {}
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= lp then
+            table.insert(list, p.Name)
+        end
+    end
+    return list
+end
+
+TpLeft:AddDropdown("TpTargetPlayer", {
+    Text       = "Select Player",
+    Values     = getPlayerList(),
+    Default    = 1,
+    Multi      = false,
+    Searchable = true,
+    Tooltip    = "Player to teleport to",
+    Callback   = function(val)
+        tpConfig.autoTarget = val
+    end,
+})
+
+TpLeft:AddButton({
+    Text = "🔄 Refresh Player List",
+    Func = function()
+        Options.TpTargetPlayer:SetValues(getPlayerList())
+        Library:Notify("Player list refreshed!", 2)
+    end,
+})
+
+TpLeft:AddButton({
+    Text = "Teleport Now",
+    Func = function()
+        local targetName = Options.TpTargetPlayer.Value
+        if not targetName or targetName == "" then
+            Library:Notify("Select a player first!", 2)
+            return
+        end
+        local target = Players:FindFirstChild(targetName)
+        if not target then
+            Library:Notify("Player not found!", 2)
+            return
+        end
+        teleportToPlayer(target)
+    end,
+})
+
+TpLeft:AddDivider()
+
+-- Auto TP Loop
+TpLeft:AddToggle("AutoTP", {
+    Text    = "Auto Teleport Loop",
+    Default = false,
+    Tooltip = "Keeps teleporting to selected player on a loop",
+    Callback = function(val)
+        tpConfig.autoTP = val
+        if val then
+            autoTPThread = task.spawn(function()
+                while tpConfig.autoTP do
+                    local targetName = Options.TpTargetPlayer.Value
+                    if targetName and targetName ~= "" then
+                        local target = Players:FindFirstChild(targetName)
+                        if target then
+                            teleportToPlayer(target)
+                        end
+                    end
+                    task.wait(tpConfig.autoDelay)
+                end
+            end)
         else
-            Rayfield:Notify({
-                Title   = "❌ Not Found",
-                Content = "Riot Shield not in loadout!",
-                Duration = 4,
-                Image   = 4483362458,
-            })
+            if autoTPThread then
+                pcall(task.cancel, autoTPThread)
+                autoTPThread = nil
+            end
         end
     end,
 })
 
-GodTab:CreateButton({
-    Name     = "Check ReplicateUnreliable Fix",
-    Callback = function()
-        Rayfield:Notify({
-            Title   = ReplicateUnreliable and "✅ Event Hooked" or "⚠️ Remote Not Found",
-            Content = ReplicateUnreliable
-                and "ReplicateUnreliable is properly handled. No more lag!"
-                or  "Remote not found — game may have updated paths.",
-            Duration = 4,
-            Image   = 4483362458,
-        })
+-- Settings
+TpRight:AddSlider("AutoTPDelay", {
+    Text     = "Auto TP Delay",
+    Default  = 10,
+    Min      = 1,
+    Max      = 50,
+    Rounding = 0,
+    Suffix   = "x0.1s",
+    Tooltip  = "Delay between auto teleports",
+    Callback = function(val)
+        tpConfig.autoDelay = val * 0.1
     end,
 })
 
--- =============================================
---   Load Config + Welcome
--- =============================================
-
-Rayfield:LoadConfiguration()
-
-Rayfield:Notify({
-    Title   = "✅ Riot Godmode Loaded (Fixed)",
-    Content = "Lag & event errors fixed! Equip shield then enable.",
-    Duration = 5,
-    Image   = 4483362458,
+TpRight:AddToggle("VisibleCheck", {
+    Text    = "In-Game Check (Skip Lobby)",
+    Default = true,
+    Tooltip = "Only TP to players who are actually in game, not in lobby",
+    Callback = function(val)
+        tpConfig.onlyInGame = val
+    end,
 })
+
+TpRight:AddLabel("ℹ️ In-Game Check detects\nif a player is in the actual\ngame map or still in lobby.\n\nPrevents wasting TPs on\nlobby players.", true)
+
+-- ============================================================
+--   TAB 6 — UI SETTINGS
+-- ============================================================
+
+local MenuGroup = Tabs.UISettings:AddLeftGroupbox("⚙️ Menu")
+
+MenuGroup:AddToggle("KeybindMenuOpen", {
+    Default  = Library.KeybindFrame.Visible,
+    Text     = "Open Keybind Menu",
+    Callback = function(val)
+        Library.KeybindFrame.Visible = val
+    end,
+})
+
+MenuGroup:AddToggle("ShowCustomCursor", {
+    Text     = "Custom Cursor",
+    Default  = true,
+    Callback = function(val)
+        Library.ShowCustomCursor = val
+    end,
+})
+
+MenuGroup:AddDivider()
+MenuGroup:AddLabel("Menu Keybind"):AddKeyPicker("MenuKeybind", {
+    Default = "RightShift",
+    NoUI    = true,
+    Text    = "Menu Keybind",
+})
+
+MenuGroup:AddButton({
+    Text = "Unload",
+    Func = function()
+        -- Clean up all connections before unload
+        stopVoidSpam()
+        if noCooldownConn   then noCooldownConn:Disconnect()   end
+        if instantReloadConn then instantReloadConn:Disconnect() end
+        if infiniteAmmoConn  then infiniteAmmoConn:Disconnect()  end
+        if rapidBurstConn    then rapidBurstConn:Disconnect()    end
+        if instantChargeConn then instantChargeConn:Disconnect() end
+        if infiniteDaggersConn then infiniteDaggersConn:Disconnect() end
+        if rapidDaggerConn   then rapidDaggerConn:Disconnect()   end
+        if dirChaosConn      then dirChaosConn:Disconnect()      end
+        if velSpikeConn      then velSpikeConn:Disconnect()      end
+        if spoofLevelConn    then spoofLevelConn:Disconnect()    end
+        if tripDetectConn    then tripDetectConn:Disconnect()    end
+        cleanTripESP()
+        Library:Unload()
+    end,
+})
+
+Library.ToggleKeybind = Options.MenuKeybind
+
+-- ============================================================
+--   Watermark
+-- ============================================================
+
+Library:SetWatermarkVisibility(true)
+
+local frameTimer   = tick()
+local frameCount   = 0
+local currentFPS   = 60
+
+local function getPing()
+    local ok, val = pcall(function()
+        return math.floor(
+            game:GetService("Stats")
+                .Network
+                .ServerStatsItem["Data Ping"]:GetValue()
+        )
+    end)
+    return ok and val or 0
+end
+
+RunService.RenderStepped:Connect(function()
+    frameCount += 1
+    if tick() - frameTimer >= 1 then
+        currentFPS  = frameCount
+        frameTimer  = tick()
+        frameCount  = 0
+    end
+    Library:SetWatermark(
+        ("Rivals Hub | %d fps | %d ms"):format(currentFPS, getPing())
+    )
+end)
+
+Library:OnUnload(function()
+    Library.Unloaded = true
+    print("Rivals Hub Unloaded")
+end)
+
+-- ============================================================
+--   Save / Theme Managers
+-- ============================================================
+
+ThemeManager:SetLibrary(Library)
+SaveManager:SetLibrary(Library)
+
+SaveManager:IgnoreThemeSettings()
+SaveManager:SetIgnoreIndexes({ "MenuKeybind" })
+
+ThemeManager:SetFolder("RivalsHub")
+SaveManager:SetFolder("RivalsHub/Rivals")
+
+SaveManager:BuildConfigSection(Tabs.UISettings)
+ThemeManager:ApplyToTab(Tabs.UISettings)
+
+SaveManager:LoadAutoloadConfig()
+
+-- ============================================================
+--   Welcome Notification
+-- ============================================================
+
+Library:Notify("✅ Rivals Hub Loaded! RightShift to toggle menu.", 5)
