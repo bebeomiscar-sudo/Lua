@@ -1,95 +1,103 @@
 -- =============================================
---   Rivals Hub — Full Feature Script
---   UI: Linoria Library
+--   Rivals Hub
+--   UI: Rayfield
 --   Built from scratch — Pro Scripter
 -- =============================================
 
-local repo = "https://raw.githubusercontent.com/xyznick/UELinoriaLib/main/"
-local Library      = loadstring(game:HttpGet(repo .. "Library.lua"))()
-local ThemeManager = loadstring(game:HttpGet(repo .. "addons/ThemeManager.lua"))()
-local SaveManager  = loadstring(game:HttpGet(repo .. "addons/SaveManager.lua"))()
+-- =============================================
+--   RAYFIELD LOAD
+-- =============================================
 
-local Options = getgenv().Options
-local Toggles = getgenv().Toggles
-
-Library.ShowCustomCursor = true
-Library.NotifySide       = "Left"
+local Rayfield = loadstring(game:HttpGet(
+    "https://sirius.menu/rayfield"
+))()
 
 -- =============================================
---   Services
+--   SERVICES
 -- =============================================
 
 local Players           = game:GetService("Players")
 local RunService        = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService  = game:GetService("UserInputService")
-local lp               = Players.LocalPlayer
+local lp                = Players.LocalPlayer
 
 -- =============================================
---   Window
+--   WINDOW
 -- =============================================
 
-local Window = Library:CreateWindow({
-    Title            = "Rivals Hub",
-    Center           = true,
-    AutoShow         = true,
-    Resizable        = true,
-    ShowCustomCursor = true,
-    TabPadding       = 8,
-    MenuFadeTime     = 0.2,
+local Window = Rayfield:CreateWindow({
+    Name             = "Rivals Hub",
+    Icon             = 0,
+    LoadingTitle     = "Rivals Hub",
+    LoadingSubtitle  = "Pro Edition",
+    Theme            = "Default",
+    DisableRayfieldPrompts = false,
+    DisableBuildWarnings   = false,
+    ConfigurationSaving = {
+        Enabled    = true,
+        FolderName = "RivalsHub",
+        FileName   = "Config",
+    },
+    KeySystem = false,
 })
 
 -- =============================================
---   Tabs
+--   NOTIFY HELPER
 -- =============================================
 
-local Tabs = {
-    Weapons    = Window:AddTab("Weapons"),
-    VoidSpam   = Window:AddTab("Void Spam"),
-    Katana     = Window:AddTab("Katana"),
-    Spoof      = Window:AddTab("Spoof"),
-    Teleport   = Window:AddTab("Teleport"),
-    Hitbox     = Window:AddTab("Hitbox"),
-    UISettings = Window:AddTab("UI Settings"),
-}
-
--- =============================================
---   Safe Require
--- =============================================
-
-local function safeRequire(obj)
-    local ok, result = pcall(require, obj)
-    return ok and result or nil
+local function notify(title, desc, dur)
+    Rayfield:Notify({
+        Title    = title,
+        Content  = desc,
+        Duration = dur or 3,
+        Image    = 4483362458,
+    })
 end
 
 -- =============================================
---   Module References
+--   SAFE REQUIRE
+-- =============================================
+
+local function safeRequire(obj)
+    local ok, r = pcall(require, obj)
+    return ok and r or nil
+end
+
+-- =============================================
+--   MODULE REFERENCES
 -- =============================================
 
 local FighterController = safeRequire(
-    lp.PlayerScripts:WaitForChild("Controllers"):WaitForChild("FighterController")
+    lp.PlayerScripts
+        :WaitForChild("Controllers")
+        :WaitForChild("FighterController")
 )
 
-local MechanicsController = safeRequire(
-    lp.PlayerScripts:WaitForChild("Controllers"):WaitForChild("MechanicsController")
+local GunModule = safeRequire(
+    lp.PlayerScripts.Modules.ItemTypes.Gun
 )
 
-local EnumLibrary = safeRequire(
-    ReplicatedStorage:WaitForChild("Modules"):WaitForChild("EnumLibrary")
+local util = safeRequire(
+    ReplicatedStorage
+        :WaitForChild("Modules")
+        :WaitForChild("Utility")
 )
 
 -- =============================================
---   Fighter Helpers
+--   FIGHTER HELPERS
 -- =============================================
 
 local function getLocalFighter()
     if not FighterController then return nil end
-    local ok, f = pcall(function() return FighterController.LocalFighter end)
+    local ok, f = pcall(function()
+        return FighterController.LocalFighter
+    end)
     return ok and f or nil
 end
 
 local function getAllItems()
-    local items = {}
+    local items   = {}
     local fighter = getLocalFighter()
     if not fighter then return items end
     if fighter.Items then
@@ -110,29 +118,42 @@ end
 local function getPlayerList()
     local list = {}
     for _, p in pairs(Players:GetPlayers()) do
-        if p ~= lp then table.insert(list, p.Name) end
+        if p ~= lp then
+            table.insert(list, p.Name)
+        end
     end
     return list
 end
+
+-- =============================================
+--   TABS
+-- =============================================
+
+local TabWeapons  = Window:CreateTab("⚔️ Weapons",   4483362458)
+local TabMovement = Window:CreateTab("🌀 Movement",  4483362458)
+local TabKatana   = Window:CreateTab("🗡️ Katana",    4483362458)
+local TabSpoof    = Window:CreateTab("🎭 Spoof",     4483362458)
+local TabWallbang = Window:CreateTab("💥 Wallbang",  4483362458)
+local TabCool     = Window:CreateTab("⚡ Cooldowns", 4483362458)
 
 -- ============================================================
 --   TAB 1 — WEAPONS
 -- ============================================================
 
-local WeaponLeft  = Tabs.Weapons:AddLeftGroupbox("Universal Gun")
-local WeaponRight = Tabs.Weapons:AddRightGroupbox("Bow & Daggers")
-local TripBox     = Tabs.Weapons:AddLeftGroupbox("Tripmines ESP")
+local SecGun  = TabWeapons:CreateSection("Universal Gun")
+local SecBow  = TabWeapons:CreateSection("Bow & Daggers")
+local SecTrip = TabWeapons:CreateSection("Tripmine ESP")
 
 -- =============================================
 --   No Shoot Cooldown
 -- =============================================
 
 local noCooldownConn = nil
-WeaponLeft:AddToggle("NoShootCooldown", {
-    Text     = "No Shoot Cooldown",
-    Default  = false,
-    Tooltip  = "Removes shoot cooldown on all weapons",
-    Callback = function(val)
+TabWeapons:CreateToggle({
+    Name       = "No Shoot Cooldown",
+    CurrentValue = false,
+    Flag       = "NoShootCD",
+    Callback   = function(val)
         if val then
             noCooldownConn = RunService.Heartbeat:Connect(function()
                 pcall(function()
@@ -149,11 +170,13 @@ WeaponLeft:AddToggle("NoShootCooldown", {
                     end
                 end)
             end)
+            notify("Weapons", "No Shoot Cooldown Active!")
         else
             if noCooldownConn then
                 noCooldownConn:Disconnect()
                 noCooldownConn = nil
             end
+            notify("Weapons", "No Shoot Cooldown Off")
         end
     end,
 })
@@ -163,11 +186,11 @@ WeaponLeft:AddToggle("NoShootCooldown", {
 -- =============================================
 
 local instantReloadConn = nil
-WeaponLeft:AddToggle("InstantReload", {
-    Text     = "Instant Reload",
-    Default  = false,
-    Tooltip  = "Makes all weapons reload instantly",
-    Callback = function(val)
+TabWeapons:CreateToggle({
+    Name         = "Instant Reload",
+    CurrentValue = false,
+    Flag         = "InstantReload",
+    Callback     = function(val)
         if val then
             instantReloadConn = RunService.Heartbeat:Connect(function()
                 pcall(function()
@@ -184,11 +207,13 @@ WeaponLeft:AddToggle("InstantReload", {
                     end
                 end)
             end)
+            notify("Weapons", "Instant Reload Active!")
         else
             if instantReloadConn then
                 instantReloadConn:Disconnect()
                 instantReloadConn = nil
             end
+            notify("Weapons", "Instant Reload Off")
         end
     end,
 })
@@ -198,11 +223,11 @@ WeaponLeft:AddToggle("InstantReload", {
 -- =============================================
 
 local infiniteAmmoConn = nil
-WeaponLeft:AddToggle("InfiniteAmmo", {
-    Text     = "Infinite Ammo",
-    Default  = false,
-    Tooltip  = "Hooks ammo signal to prevent running out",
-    Callback = function(val)
+TabWeapons:CreateToggle({
+    Name         = "Infinite Ammo",
+    CurrentValue = false,
+    Flag         = "InfiniteAmmo",
+    Callback     = function(val)
         if val then
             infiniteAmmoConn = RunService.Heartbeat:Connect(function()
                 pcall(function()
@@ -221,6 +246,7 @@ WeaponLeft:AddToggle("InfiniteAmmo", {
                     end
                 end)
             end)
+            notify("Weapons", "Infinite Ammo Active!")
         else
             if infiniteAmmoConn then
                 infiniteAmmoConn:Disconnect()
@@ -232,6 +258,7 @@ WeaponLeft:AddToggle("InfiniteAmmo", {
                     fighter:SetAttribute("InfiniteAmmoReserve", false)
                 end
             end)
+            notify("Weapons", "Infinite Ammo Off")
         end
     end,
 })
@@ -241,11 +268,11 @@ WeaponLeft:AddToggle("InfiniteAmmo", {
 -- =============================================
 
 local rapidBurstConn = nil
-WeaponLeft:AddToggle("RapidBurst", {
-    Text     = "Rapid Burst Fire",
-    Default  = false,
-    Tooltip  = "Resets burst count every frame",
-    Callback = function(val)
+TabWeapons:CreateToggle({
+    Name         = "Rapid Burst Fire",
+    CurrentValue = false,
+    Flag         = "RapidBurst",
+    Callback     = function(val)
         if val then
             rapidBurstConn = RunService.Heartbeat:Connect(function()
                 pcall(function()
@@ -259,27 +286,29 @@ WeaponLeft:AddToggle("RapidBurst", {
                     end
                 end)
             end)
+            notify("Weapons", "Rapid Burst Active!")
         else
             if rapidBurstConn then
                 rapidBurstConn:Disconnect()
                 rapidBurstConn = nil
             end
+            notify("Weapons", "Rapid Burst Off")
         end
     end,
 })
 
--- =============================================
---   Bow Features
--- =============================================
+TabWeapons:CreateSection("Bow & Daggers")
 
-WeaponRight:AddLabel("Bow Features")
+-- =============================================
+--   Instant Bow Charge
+-- =============================================
 
 local instantChargeConn = nil
-WeaponRight:AddToggle("InstantCharge", {
-    Text     = "Instant Bow Charge",
-    Default  = false,
-    Tooltip  = "Forces bow to always be at max charge",
-    Callback = function(val)
+TabWeapons:CreateToggle({
+    Name         = "Instant Bow Charge",
+    CurrentValue = false,
+    Flag         = "InstantCharge",
+    Callback     = function(val)
         if val then
             instantChargeConn = RunService.Heartbeat:Connect(function()
                 pcall(function()
@@ -296,47 +325,47 @@ WeaponRight:AddToggle("InstantCharge", {
                     end
                 end)
             end)
+            notify("Bow", "Instant Charge Active!")
         else
             if instantChargeConn then
                 instantChargeConn:Disconnect()
                 instantChargeConn = nil
             end
+            notify("Bow", "Instant Charge Off")
         end
     end,
 })
 
-WeaponRight:AddButton({
-    Text = "Force Max Charge Now",
-    Func = function()
+TabWeapons:CreateButton({
+    Name     = "Force Max Charge Now",
+    Callback = function()
         pcall(function()
             local bow = getItemByName("Bow")
             if not bow then
-                Library:Notify("Bow not found in loadout!", 3)
+                notify("Bow", "Bow not in loadout!", 3)
                 return
             end
             bow._is_charging     = true
             bow._shoot_cooldown  = 0
             bow._reload_cooldown = 0
-            bow._charge_hash     = bow._charge_hash + 1
-            Library:Notify("Bow forced to max charge!", 3)
+            if rawget(bow, "_charge_hash") then
+                bow._charge_hash = bow._charge_hash + 1
+            end
+            notify("Bow", "Max charge forced!")
         end)
     end,
 })
 
-WeaponRight:AddDivider()
-
 -- =============================================
---   Daggers Features
+--   Daggers
 -- =============================================
-
-WeaponRight:AddLabel("Daggers Features")
 
 local infiniteDaggersConn = nil
-WeaponRight:AddToggle("InfiniteDaggers", {
-    Text     = "Infinite Daggers",
-    Default  = false,
-    Tooltip  = "Prevents daggers from running out",
-    Callback = function(val)
+TabWeapons:CreateToggle({
+    Name         = "Infinite Daggers",
+    CurrentValue = false,
+    Flag         = "InfiniteDaggers",
+    Callback     = function(val)
         if val then
             infiniteDaggersConn = RunService.Heartbeat:Connect(function()
                 pcall(function()
@@ -353,21 +382,23 @@ WeaponRight:AddToggle("InfiniteDaggers", {
                     end
                 end)
             end)
+            notify("Daggers", "Infinite Daggers Active!")
         else
             if infiniteDaggersConn then
                 infiniteDaggersConn:Disconnect()
                 infiniteDaggersConn = nil
             end
+            notify("Daggers", "Infinite Daggers Off")
         end
     end,
 })
 
 local rapidDaggerConn = nil
-WeaponRight:AddToggle("RapidDaggers", {
-    Text     = "Rapid Dagger Throw",
-    Default  = false,
-    Tooltip  = "Removes throw cooldown for daggers",
-    Callback = function(val)
+TabWeapons:CreateToggle({
+    Name         = "Rapid Dagger Throw",
+    CurrentValue = false,
+    Flag         = "RapidDagger",
+    Callback     = function(val)
         if val then
             rapidDaggerConn = RunService.Heartbeat:Connect(function()
                 pcall(function()
@@ -379,28 +410,37 @@ WeaponRight:AddToggle("RapidDaggers", {
                     daggers._last_shot       = 0
                 end)
             end)
+            notify("Daggers", "Rapid Throw Active!")
         else
             if rapidDaggerConn then
                 rapidDaggerConn:Disconnect()
                 rapidDaggerConn = nil
             end
+            notify("Daggers", "Rapid Throw Off")
         end
     end,
 })
 
 -- =============================================
---   Tripmines ESP
+--   Tripmine ESP
 -- =============================================
 
-local tripESPEnabled = false
-local tripHighlights = {}
-local tripBillboards = {}
-local tripColorESP   = Color3.fromRGB(255, 50, 50)
-local tripDetectConn = nil
+TabWeapons:CreateSection("Tripmine ESP")
+
+local tripESPEnabled  = false
+local tripHighlights  = {}
+local tripBillboards  = {}
+local tripColorESP    = Color3.fromRGB(255, 50, 50)
+local tripDetectConn  = nil
+local tripNoCDConn    = nil
 
 local function cleanTripESP()
-    for _, h in pairs(tripHighlights) do pcall(function() h:Destroy() end) end
-    for _, b in pairs(tripBillboards) do pcall(function() b:Destroy() end) end
+    for _, h in pairs(tripHighlights) do
+        pcall(function() h:Destroy() end)
+    end
+    for _, b in pairs(tripBillboards) do
+        pcall(function() b:Destroy() end)
+    end
     tripHighlights = {}
     tripBillboards = {}
 end
@@ -408,7 +448,9 @@ end
 local function isTripmine(obj)
     if not obj then return false end
     local name = obj.Name:lower()
-    return name:find("tripmine") or name:find("subspace") or name:find("mine")
+    return name:find("tripmine")
+        or name:find("subspace")
+        or name:find("mine")
 end
 
 local function addTripESP(obj)
@@ -480,11 +522,11 @@ local function scanTripmines()
     end
 end
 
-TripBox:AddToggle("TripmineESP", {
-    Text     = "Tripmine ESP",
-    Default  = false,
-    Tooltip  = "Shows all placed tripmines with distance",
-    Callback = function(val)
+TabWeapons:CreateToggle({
+    Name         = "Tripmine ESP",
+    CurrentValue = false,
+    Flag         = "TripESP",
+    Callback     = function(val)
         tripESPEnabled = val
         if val then
             scanTripmines()
@@ -492,55 +534,28 @@ TripBox:AddToggle("TripmineESP", {
                 if isTripmine(obj) then
                     task.wait(0.1)
                     addTripESP(obj)
-                    Library:Notify("Tripmine Placed!", 3)
+                    notify("Tripmine", "Mine placed nearby!")
                 end
             end)
+            notify("Tripmine ESP", "Active!")
         else
             cleanTripESP()
             if tripDetectConn then
                 tripDetectConn:Disconnect()
                 tripDetectConn = nil
             end
+            notify("Tripmine ESP", "Off")
         end
     end,
 })
 
-TripBox:AddLabel("ESP Color"):AddColorPicker("TripESPColor", {
-    Default  = Color3.fromRGB(255, 50, 50),
-    Title    = "Tripmine ESP Color",
-    Callback = function(val)
-        tripColorESP = val
-        for _, h in pairs(tripHighlights) do
-            pcall(function()
-                h.Color3        = val
-                h.SurfaceColor3 = val
-            end)
-        end
-        for _, b in pairs(tripBillboards) do
-            pcall(function()
-                local label = b:FindFirstChildWhichIsA("TextLabel")
-                if label then label.TextColor3 = val end
-            end)
-        end
-    end,
-})
-
-TripBox:AddButton({
-    Text = "Rescan Tripmines",
-    Func = function()
-        cleanTripESP()
-        scanTripmines()
-        Library:Notify("Tripmines rescanned!", 2)
-    end,
-})
-
-TripBox:AddToggle("TripNoCD", {
-    Text     = "No Place Cooldown",
-    Default  = false,
-    Tooltip  = "Remove tripmine placement cooldown",
-    Callback = function(val)
+TabWeapons:CreateToggle({
+    Name         = "No Place Cooldown",
+    CurrentValue = false,
+    Flag         = "TripNoCD",
+    Callback     = function(val)
         if val then
-            RunService.Heartbeat:Connect(function()
+            tripNoCDConn = RunService.Heartbeat:Connect(function()
                 pcall(function()
                     local trip = getItemByName("Subspace Tripmine")
                         or getItemByName("Tripmine")
@@ -549,108 +564,85 @@ TripBox:AddToggle("TripNoCD", {
                     end
                 end)
             end)
+        else
+            if tripNoCDConn then
+                tripNoCDConn:Disconnect()
+                tripNoCDConn = nil
+            end
         end
     end,
 })
 
+TabWeapons:CreateButton({
+    Name     = "Rescan Tripmines",
+    Callback = function()
+        cleanTripESP()
+        scanTripmines()
+        notify("Tripmine ESP", "Rescanned!")
+    end,
+})
+
 -- ============================================================
---   TAB 2 — VOID SPAM
+--   TAB 2 — MOVEMENT (Void Spam)
 -- ============================================================
 
-local VoidLeft  = Tabs.VoidSpam:AddLeftGroupbox("Void Spam")
-local VoidRight = Tabs.VoidSpam:AddRightGroupbox("Settings")
-
 -- =============================================
---   Void State
+--   BETTER VOID SPAM
+--   Uses full int32 range with betterRandom
 -- =============================================
 
-local voidHRPRef     = nil
-local savedClientC   = nil
-local savedClientV   = nil
-local savedClientVA  = nil
+local voidHRP    = nil
+local clientC    = nil
+local clientV    = nil
+local clientVA   = nil
 
--- Camera lock state — saved when feature turns on
-local lockedCameraC  = nil
-
-local voidHBConn     = nil
-local velSpikeConn   = nil
-
--- =============================================
---   Void Ranges (from dex findings)
---   Y: 0 - 590000
---   X: 0 - 450000
---   Z: 0 - 230000
--- =============================================
-
-local VOID_X_MAX = 450000
-local VOID_Y_MAX = 590000
-local VOID_Z_MAX = 230000
-
-local VoidIntensity = 1.0  -- 0.0 to 1.0 scale
+local voidHBConn    = nil
+local velSpikeConn  = nil
+local antiAimConn   = nil
+local antiAimLocked = nil
 
 local function betterRandom(mi, ma, dmi, dma)
-    local val = math.random(mi, ma)
+    if dmi <= mi and dma >= ma then
+        return math.random(mi, ma)
+    end
+    local val
     local attempts = 0
     repeat
         val = math.random(mi, ma)
         attempts += 1
-    until val < dmi or val > dma or attempts > 20
+    until (val < dmi or val > dma) or attempts >= 50
     return val
 end
 
-local function getVoidPos()
-    local xi = math.floor(VOID_X_MAX * VoidIntensity)
-    local yi = math.floor(VOID_Y_MAX * VoidIntensity)
-    local zi = math.floor(VOID_Z_MAX * VoidIntensity)
+local INT_MIN = -2147483646
+local INT_MAX =  2147483646
+local INT_DEAD_MIN = -1147483646
+local INT_DEAD_MAX =  1147483646
 
-    -- Exclude 0 zone (near origin = not voidy enough)
-    local xe = math.floor(xi * 0.5)
-    local ye = math.floor(yi * 0.5)
-    local ze = math.floor(zi * 0.5)
-
+local function getBetterVoidPos()
     return Vector3.new(
-        betterRandom(-xi, xi, -xe, xe),
-        betterRandom(0,   yi,  0,  ye),  -- Y: 0 to 590k (above map)
-        betterRandom(-zi, zi, -ze, ze)
+        betterRandom(INT_MIN, INT_MAX, INT_DEAD_MIN, INT_DEAD_MAX),
+        betterRandom(INT_MIN, INT_MAX, INT_DEAD_MIN, INT_DEAD_MAX),
+        betterRandom(INT_MIN, INT_MAX, INT_DEAD_MIN, INT_DEAD_MAX)
     )
 end
 
-local function getVoidVel()
-    local xi = math.floor(VOID_X_MAX * VoidIntensity)
-    local yi = math.floor(VOID_Y_MAX * VoidIntensity)
-    local zi = math.floor(VOID_Z_MAX * VoidIntensity)
+local function getBetterVoidVel()
     return Vector3.new(
-        math.random(-xi, xi),
-        math.random(-yi, yi),
-        math.random(-zi, zi)
+        betterRandom(INT_MIN, INT_MAX, INT_DEAD_MIN, INT_DEAD_MAX),
+        betterRandom(INT_MIN, INT_MAX, INT_DEAD_MIN, INT_DEAD_MAX),
+        betterRandom(INT_MIN, INT_MAX, INT_DEAD_MIN, INT_DEAD_MAX)
     )
 end
 
--- =============================================
---   Lock Camera CFrame when feature turns on
--- =============================================
-
-local function lockCamera()
-    lockedCameraC = workspace.CurrentCamera.CFrame
-end
-
-local function applyCameraLock()
-    if lockedCameraC then
-        workspace.CurrentCamera.CFrame = lockedCameraC
-    end
-end
-
--- =============================================
---   Standard Void Spam
--- =============================================
-
-local function startVoidSpam()
+local function startBetterVoid()
     if voidHBConn then
         voidHBConn:Disconnect()
         voidHBConn = nil
     end
-
-    lockCamera()
+    pcall(function()
+        RunService:UnbindFromRenderStep("VoidSync")
+    end)
 
     voidHBConn = RunService.Heartbeat:Connect(function()
         pcall(function()
@@ -659,17 +651,19 @@ local function startVoidSpam()
             local hrp = char:FindFirstChild("HumanoidRootPart")
             if not hrp then return end
 
-            voidHRPRef   = hrp
-            savedClientC  = hrp.CFrame
-            savedClientV  = hrp.AssemblyLinearVelocity
-            savedClientVA = hrp.AssemblyAngularVelocity
+            voidHRP  = hrp
+            clientC  = hrp.CFrame
+            clientV  = hrp.AssemblyLinearVelocity
+            clientVA = hrp.AssemblyAngularVelocity
 
-            local vPos = getVoidPos()
-            hrp.CFrame = CFrame.new(vPos)
-                * CFrame.Angles(math.pi, math.pi, math.pi)
-
-            hrp.AssemblyLinearVelocity  = getVoidVel()
-            hrp.AssemblyAngularVelocity = getVoidVel()
+            hrp.CFrame = CFrame.new(getBetterVoidPos())
+                * CFrame.Angles(
+                    math.rad(math.pi),
+                    math.rad(math.pi),
+                    math.rad(math.pi)
+                )
+            hrp.AssemblyLinearVelocity  = getBetterVoidVel()
+            hrp.AssemblyAngularVelocity = getBetterVoidVel()
         end)
     end)
 
@@ -677,21 +671,18 @@ local function startVoidSpam()
         "VoidSync",
         Enum.RenderPriority.First.Value,
         function()
-            -- Restore position so client sees correct spot
-            if voidHRPRef and savedClientC then
+            if voidHRP and clientC then
                 pcall(function()
-                    voidHRPRef.CFrame = savedClientC
-                    voidHRPRef.AssemblyLinearVelocity  = savedClientV
-                    voidHRPRef.AssemblyAngularVelocity = savedClientVA
+                    voidHRP.CFrame = clientC
+                    voidHRP.AssemblyLinearVelocity  = clientV
+                    voidHRP.AssemblyAngularVelocity = clientVA
                 end)
             end
-            -- Keep camera locked
-            applyCameraLock()
         end
     )
 end
 
-local function stopVoidSpam()
+local function stopBetterVoid()
     if voidHBConn then
         voidHBConn:Disconnect()
         voidHBConn = nil
@@ -699,12 +690,14 @@ local function stopVoidSpam()
     pcall(function()
         RunService:UnbindFromRenderStep("VoidSync")
     end)
-    voidHRPRef    = nil
-    lockedCameraC = nil
+    voidHRP  = nil
+    clientC  = nil
+    clientV  = nil
+    clientVA = nil
 end
 
 -- =============================================
---   Velocity Spike
+--   VELOCITY SPIKE
 -- =============================================
 
 local velSpikeRate = 0.05
@@ -723,7 +716,7 @@ local function startVelSpike()
             if not char then return end
             local hrp = char:FindFirstChild("HumanoidRootPart")
             if not hrp then return end
-            hrp.AssemblyLinearVelocity = getVoidVel()
+            hrp.AssemblyLinearVelocity = getBetterVoidVel()
         end)
     end)
 end
@@ -736,38 +729,25 @@ local function stopVelSpike()
 end
 
 -- =============================================
---   Anti Aim — uses ViewportCameras finding
---   Locks server camera rotation
---   while client camera stays where you look
+--   ANTI AIM
 -- =============================================
 
-local antiAimConn     = nil
-local antiAimLocked   = nil  -- the fake rotation we send
 local UpdateCamRemote = ReplicatedStorage
     :WaitForChild("Remotes")
     :WaitForChild("Replication")
     :WaitForChild("Fighter")
     :FindFirstChild("UpdateCameraRotation")
 
-local Utility = safeRequire(
-    ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Utility")
-)
-
 local function startAntiAim()
-    -- Lock fake camera rotation when turned on
-    -- Sends a fixed rotation to server so server
-    -- thinks we look somewhere completely different
     antiAimLocked = Vector2.new(
         math.random() * math.pi * 2,
         math.random() * math.pi * 2
     )
-
     antiAimConn = RunService.Heartbeat:Connect(function()
         if not UpdateCamRemote then return end
-        if not Utility then return end
+        if not util then return end
         pcall(function()
-            -- Send fake encoded rotation to server
-            local encoded = Utility:EncodeCameraRotation(antiAimLocked)
+            local encoded = util:EncodeCameraRotation(antiAimLocked)
             UpdateCamRemote:FireServer(encoded, nil)
         end)
     end)
@@ -782,143 +762,1254 @@ local function stopAntiAim()
 end
 
 -- =============================================
---   UI Toggles
+--   SLINGSHOT BYPASS (IMPROVED)
 -- =============================================
 
-VoidLeft:AddToggle("VoidSpam", {
-    Text     = "Standard Void Spam",
-    Default  = false,
-    Tooltip  = "TPs to void every frame then syncs back — camera stays locked",
-    Callback = function(val)
-        if val then
-            startVoidSpam()
-            Library:Notify("Void Spam Active!", 3)
+local slingshotActive      = false
+local slingshotHBConn      = nil
+local slingshotAddedConn   = nil
+local slingshotRemovedConn = nil
+local trackedProjectiles   = {}
+local SLING_VOID           = CFrame.new(9000, 9000, 9000)
+
+local function improvedSlingshotBypass(obj)
+    if not obj:IsA("BasePart") then return end
+
+    -- sethiddenproperty to make parts invisible + non-collide
+    pcall(function()
+        sethiddenproperty(obj, "Transparency",  1)
+        sethiddenproperty(obj, "CanCollide",    false)
+        sethiddenproperty(obj, "CanTouch",      false)
+        sethiddenproperty(obj, "CastShadow",    false)
+        sethiddenproperty(obj, "Massless",      true)
+    end)
+
+    -- Also directly set visible properties
+    pcall(function()
+        obj.Transparency = 1
+        obj.CanCollide   = false
+        obj.CanTouch     = false
+        obj.CastShadow   = false
+    end)
+end
+
+local function startSlingshot()
+    slingshotActive = true
+    trackedProjectiles = {}
+
+    slingshotAddedConn = workspace.ChildAdded:Connect(function(obj)
+        if not obj:IsA("BasePart") then return end
+        if obj.Name == "CoreProjectile" then
+            trackedProjectiles[obj] = true
+            improvedSlingshotBypass(obj)
+        elseif obj.Name == "Part" then
+            task.defer(function()
+                if obj and obj.Parent
+                    and obj.AssemblyLinearVelocity.Magnitude > 50 then
+                    trackedProjectiles[obj] = true
+                    improvedSlingshotBypass(obj)
+                end
+            end)
+        end
+    end)
+
+    slingshotRemovedConn = workspace.ChildRemoved:Connect(function(obj)
+        trackedProjectiles[obj] = nil
+    end)
+
+    slingshotHBConn = RunService.Heartbeat:Connect(function()
+        pcall(function()
+            -- Move all enemy HRPs to void
+            for _, p in pairs(Players:GetPlayers()) do
+                if p ~= lp and p.Character then
+                    local h = p.Character
+                        :FindFirstChild("HumanoidRootPart")
+                    if h then
+                        -- sethiddenproperty on enemy HRP
+                        pcall(function()
+                            sethiddenproperty(h, "CFrame", SLING_VOID)
+                        end)
+                        h.CFrame = SLING_VOID
+                        h.AssemblyLinearVelocity  = Vector3.zero
+                        h.AssemblyAngularVelocity = Vector3.zero
+                    end
+                end
+            end
+
+            -- Move all CoreProjectiles
+            for _, o in pairs(workspace:GetChildren()) do
+                if o.Name == "CoreProjectile" and o:IsA("BasePart") then
+                    pcall(function()
+                        sethiddenproperty(o, "CFrame", SLING_VOID)
+                    end)
+                    o.CFrame = SLING_VOID
+                    o.AssemblyLinearVelocity = Vector3.zero
+                end
+            end
+
+            -- Move tracked projectiles
+            for p in pairs(trackedProjectiles) do
+                if p and p.Parent then
+                    pcall(function()
+                        sethiddenproperty(p, "CFrame", SLING_VOID)
+                    end)
+                    p.CFrame = SLING_VOID
+                    p.AssemblyLinearVelocity = Vector3.zero
+                else
+                    trackedProjectiles[p] = nil
+                end
+            end
+        end)
+    end)
+end
+
+local function stopSlingshot()
+    slingshotActive = false
+    if slingshotHBConn then
+        slingshotHBConn:Disconnect()
+        slingshotHBConn = nil
+    end
+    if slingshotAddedConn then
+        slingshotAddedConn:Disconnect()
+        slingshotAddedConn = nil
+    end
+    if slingshotRemovedConn then
+        slingshotRemovedConn:Disconnect()
+        slingshotRemovedConn = nil
+    end
+    trackedProjectiles = {}
+end
+
+-- =============================================
+--   WALLBANG TELEPORT DESYNC
+--   3 Offsets + shoots during attack phase
+-- =============================================
+
+local WB       = { enabled = false, hitPart = "Head" }
+local wbState  = {}
+
+-- WB Desync offsets
+local wbDesyncCfg = {
+    offset1 = Vector3.new(0,  5, 0),
+    offset2 = Vector3.new(0, 10, 0),
+    offset3 = Vector3.new(0, 15, 0),
+}
+
+do
+    local __gm = GunModule
+    local __um = util
+
+    function wbState:init()
+        self.active  = false
+        self.target  = nil
+        self.desync  = false
+        self.conn1   = nil
+        self.conn2   = nil
+        self.task1   = nil
+        self.oldfunc = nil
+        self.hooked  = false
+    end
+
+    function wbState:find()
+        local best, bd = nil, math.huge
+        for _, p in next, Players:GetPlayers() do
+            if p == lp then continue end
+            local char = p.Character
+            if not char or not char:IsDescendantOf(workspace) then
+                continue
+            end
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if not hum or hum.Health <= 0 then continue end
+            local head = char:FindFirstChild("Head")
+            if not head then continue end
+            local d = (workspace.CurrentCamera.CFrame.Position
+                - head.Position).Magnitude
+            if d < bd then bd = d; best = p end
+        end
+        return best
+    end
+
+    function wbState:getHitPart(char)
+        return WB.hitPart == "Head"
+            and char:FindFirstChild("Head")
+            or  char:FindFirstChild("UpperTorso")
+            or  char:FindFirstChild("Torso")
+            or  char:FindFirstChild("HumanoidRootPart")
+    end
+
+    -- =============================================
+    --   WALLBANG TELEPORT DESYNC WITH 3 OFFSETS
+    --   Teleports through 3 positions rapidly
+    --   then restores — confuses server hit reg
+    -- =============================================
+
+    function wbState:teleportDesync(targetChar)
+        local root = lp.Character
+            and lp.Character:FindFirstChild("HumanoidRootPart")
+        if not root then return end
+
+        local head = targetChar:FindFirstChild("Head")
+        if not head then return end
+
+        local savedCF = root.CFrame
+        local savedLV = root.AssemblyLinearVelocity
+        local savedAV = root.AssemblyAngularVelocity
+
+        -- Pass through 3 offsets rapidly
+        -- Each offset relative to target head
+        local offsets = {
+            wbDesyncCfg.offset1,
+            wbDesyncCfg.offset2,
+            wbDesyncCfg.offset3,
+        }
+
+        task.spawn(function()
+            for _, offset in ipairs(offsets) do
+                pcall(function()
+                    root.CFrame = CFrame.new(
+                        head.Position + offset
+                    )
+                end)
+                -- sethiddenproperty to bypass network ownership check
+                pcall(function()
+                    sethiddenproperty(
+                        root, "CFrame",
+                        CFrame.new(head.Position + offset)
+                    )
+                end)
+                task.wait(0.016) -- ~1 frame
+            end
+
+            -- Restore via RenderStep
+            RunService:BindToRenderStep(
+                "__wbDesyncRestore",
+                Enum.RenderPriority.First.Value,
+                function()
+                    pcall(function()
+                        root.CFrame              = savedCF
+                        root.AssemblyLinearVelocity  = savedLV
+                        root.AssemblyAngularVelocity = savedAV
+                    end)
+                    RunService:UnbindFromRenderStep(
+                        "__wbDesyncRestore"
+                    )
+                end
+            )
+        end)
+    end
+
+    function wbState:desyncStart(tp2)
+        if self.conn2 then self.conn2:Disconnect() end
+        self.desync = true
+
+        local head = tp2.Character
+            and tp2.Character:FindFirstChild("Head")
+        if not head then return end
+
+        self.conn2 = RunService.Heartbeat:Connect(function()
+            if not self.desync then return end
+            local root = lp.Character
+                and lp.Character:FindFirstChild("HumanoidRootPart")
+            if not root then return end
+            local tc2 = tp2.Character
+            if not tc2 then self:desyncStop(); return end
+            local h2  = tc2:FindFirstChild("Head")
+            if not h2 then self:desyncStop(); return end
+
+            local sCF = root.CFrame
+            local sLV = root.AssemblyLinearVelocity
+            local sAV = root.AssemblyAngularVelocity
+
+            root.CFrame = h2.CFrame * CFrame.new(0, -5, 0)
+
+            -- sethiddenproperty for stronger desync
+            pcall(function()
+                sethiddenproperty(
+                    root, "CFrame",
+                    h2.CFrame * CFrame.new(0, -5, 0)
+                )
+            end)
+
+            RunService:BindToRenderStep("__wbR", 101, function()
+                pcall(function()
+                    root.CFrame              = sCF
+                    root.AssemblyLinearVelocity  = sLV
+                    root.AssemblyAngularVelocity = sAV
+                end)
+                RunService:UnbindFromRenderStep("__wbR")
+            end)
+        end)
+    end
+
+    function wbState:desyncStop()
+        self.desync = false
+        if self.conn2 then
+            self.conn2:Disconnect()
+            self.conn2 = nil
+        end
+        pcall(function()
+            RunService:UnbindFromRenderStep("__wbR")
+        end)
+    end
+
+    function wbState:setup()
+        if self.conn1 then self.conn1:Disconnect() end
+        self.conn1 = RunService.Heartbeat:Connect(function()
+            if not self.active then return end
+            self.target = self:find()
+        end)
+
+        if not __gm then return end
+        if self.hooked then
+            warn("[Wallbang] Already hooked")
+            return
+        end
+
+        local origSS = __gm.StartShooting
+        if not origSS then
+            warn("[Wallbang] StartShooting not found")
+            return
+        end
+
+        self.oldfunc = origSS
+        local hookOk = pcall(function()
+            rawset(__gm, "StartShooting", function(gSelf, ...)
+                local results = { origSS(gSelf, ...) }
+                if not gSelf.ClientFighter
+                    or not gSelf.ClientFighter.IsLocalPlayer then
+                    return table.unpack(results)
+                end
+                local sd = results[3]
+                if not sd or typeof(sd) ~= "table" then
+                    return table.unpack(results)
+                end
+                results[4] = true
+                local tgP = self.target
+                if not self.active or not tgP or not tgP.Character then
+                    return table.unpack(results)
+                end
+
+                -- Run teleport desync with 3 offsets
+                self:teleportDesync(tgP.Character)
+
+                -- Standard desync
+                self:desyncStart(tgP)
+                task.wait(0.1)
+                if self.task1 then
+                    task.cancel(self.task1)
+                    self.task1 = nil
+                end
+
+                local ap = self:getHitPart(tgP.Character)
+                if not ap then return table.unpack(results) end
+
+                local tPos = ap.Position
+                local tCF2 = ap.CFrame
+                local oPos = tPos - Vector3.new(0, 3, 0)
+
+                if __um then
+                    pcall(function()
+                        sd[utf8.char(0)] = __um:EncodeCFrame(
+                            CFrame.new(oPos, tPos)
+                        )
+                        sd[utf8.char(1)] = __um:EncodeCFrame(
+                            CFrame.new(tPos)
+                        )
+                        sd[utf8.char(2)] = ap
+                        sd[utf8.char(3)] = __um:EncodeCFrame(
+                            tCF2:ToObjectSpace(CFrame.new(
+                                tPos + Vector3.new(
+                                    math.random(-1, 1) * 0.5,
+                                    math.random(-1, 1) * 0.5,
+                                    math.random(-1, 1) * 0.5
+                                )
+                            ))
+                        )
+                        if sd.Hitbox then
+                            sd.Hitbox = WB.hitPart == "Head"
+                                and "Head" or "Body"
+                        end
+                    end)
+                end
+
+                self.task1 = task.delay(0.15, function()
+                    self:desyncStop()
+                end)
+                return table.unpack(results)
+            end)
+        end)
+
+        if hookOk then
+            self.hooked = true
         else
-            stopVoidSpam()
-            Library:Notify("Void Spam Off", 2)
+            warn("[Wallbang] Hook failed")
+            self.oldfunc = nil
+        end
+    end
+
+    function wbState:Start()
+        self.active = true
+        self:setup()
+        notify("Wallbang", "Active!")
+    end
+
+    function wbState:Shutdown()
+        self.active = false
+        if self.conn1 then self.conn1:Disconnect(); self.conn1 = nil end
+        if self.conn2 then self.conn2:Disconnect(); self.conn2 = nil end
+        if self.task1 then task.cancel(self.task1); self.task1 = nil end
+        pcall(function()
+            RunService:UnbindFromRenderStep("__wbR")
+            RunService:UnbindFromRenderStep("__wbDesyncRestore")
+        end)
+        if self.hooked and self.oldfunc and __gm then
+            pcall(function()
+                rawset(__gm, "StartShooting", self.oldfunc)
+            end)
+            self.oldfunc = nil
+            self.hooked  = false
+        end
+        notify("Wallbang", "Off")
+    end
+end
+
+wbState:init()
+
+-- =============================================
+--   HIDE / ATTACK SYSTEM
+--   Hide: stay in void for X seconds
+--   Attack: TP to enemy + wallbang shoot
+--   Loop: Hide → Attack → Hide → ...
+-- =============================================
+
+local hideAttackCfg = {
+    enabled       = false,
+    hideTime      = 0.25,
+    attackTime    = 0.1,
+    shootAttempts = 1,
+}
+
+local hideAttackConn   = nil
+local hideAttackThread = nil
+
+local function getClosestEnemy()
+    local best, bd = nil, math.huge
+    local myChar = lp.Character
+    if not myChar then return nil end
+    local myHRP = myChar:FindFirstChild("HumanoidRootPart")
+    if not myHRP then return nil end
+
+    for _, p in pairs(Players:GetPlayers()) do
+        if p == lp then continue end
+        local char = p.Character
+        if not char or not char:IsDescendantOf(workspace) then
+            continue
+        end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not hum or hum.Health <= 0 then continue end
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if not hrp then continue end
+        local d = (myHRP.Position - hrp.Position).Magnitude
+        if d < bd then
+            bd   = d
+            best = p
+        end
+    end
+    return best
+end
+
+local function fireWallbangShot(target)
+    if not target or not target.Character then return end
+    local lf   = getLocalFighter()
+    if not lf then return end
+    local item = lf.EquippedItem
+    if not item then return end
+
+    local ap = wbState:getHitPart(target.Character)
+    if not ap then return end
+
+    -- Teleport desync before shot
+    wbState:teleportDesync(target.Character)
+    task.wait(0.05)
+
+    local tPos = ap.Position
+    local tCF2 = ap.CFrame
+    local oPos = tPos - Vector3.new(0, 3, 0)
+
+    if util then
+        pcall(function()
+            local UseItemRemote = ReplicatedStorage
+                :WaitForChild("Remotes")
+                :WaitForChild("Replication")
+                :WaitForChild("Fighter")
+                :WaitForChild("UseItem")
+
+            local EnumLibrary = safeRequire(
+                ReplicatedStorage
+                    :WaitForChild("Modules")
+                    :WaitForChild("EnumLibrary")
+            )
+
+            local cd = {}
+            cd[utf8.char(1)] = {
+                [utf8.char(0)] = util:EncodeCFrame(
+                    CFrame.new(oPos, tPos)
+                ),
+                [utf8.char(1)] = util:EncodeCFrame(
+                    CFrame.new(tPos)
+                ),
+                [utf8.char(2)] = ap,
+                [utf8.char(3)] = util:EncodeCFrame(
+                    tCF2:ToObjectSpace(CFrame.new(tPos))
+                ),
+            }
+
+            UseItemRemote:FireServer(
+                item:Get("ObjectID"),
+                EnumLibrary:ToEnum("StartShooting"),
+                cd,
+                nil
+            )
+        end)
+    end
+end
+
+local function runHideAttackLoop()
+    while hideAttackCfg.enabled do
+        -- HIDE PHASE: stay in void
+        local char = lp.Character
+        if char then
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                -- Save position
+                local savedCF = hrp.CFrame
+                -- Go to void
+                hrp.CFrame = CFrame.new(getBetterVoidPos())
+                pcall(function()
+                    sethiddenproperty(
+                        hrp, "CFrame",
+                        CFrame.new(getBetterVoidPos())
+                    )
+                end)
+                task.wait(hideAttackCfg.hideTime)
+
+                if not hideAttackCfg.enabled then break end
+
+                -- ATTACK PHASE: TP to enemy + shoot
+                local enemy = getClosestEnemy()
+                if enemy and enemy.Character then
+                    local eHRP = enemy.Character
+                        :FindFirstChild("HumanoidRootPart")
+                    if eHRP then
+                        -- TP on top of enemy
+                        hrp.CFrame = CFrame.new(
+                            eHRP.Position + Vector3.new(0, 5, 0)
+                        )
+                        pcall(function()
+                            sethiddenproperty(
+                                hrp, "CFrame",
+                                CFrame.new(
+                                    eHRP.Position
+                                    + Vector3.new(0, 5, 0)
+                                )
+                            )
+                        end)
+
+                        -- Fire shoot attempts
+                        for i = 1, hideAttackCfg.shootAttempts do
+                            fireWallbangShot(enemy)
+                            if i < hideAttackCfg.shootAttempts then
+                                task.wait(0.016)
+                            end
+                        end
+                    end
+                end
+
+                task.wait(hideAttackCfg.attackTime)
+            end
+        else
+            task.wait(0.1)
+        end
+    end
+end
+
+local function startHideAttack()
+    hideAttackCfg.enabled = true
+    if hideAttackThread then
+        task.cancel(hideAttackThread)
+        hideAttackThread = nil
+    end
+    hideAttackThread = task.spawn(runHideAttackLoop)
+end
+
+local function stopHideAttack()
+    hideAttackCfg.enabled = false
+    if hideAttackThread then
+        task.cancel(hideAttackThread)
+        hideAttackThread = nil
+    end
+end
+
+-- =============================================
+--   RIOT ABUSER
+-- =============================================
+
+local riotRunning    = false
+local riotConnection = nil
+local riotOriginalCF = nil
+local SAFE_FLOOR     = 2
+
+local riotCfg = {
+    spinSpeed = 720,
+    distance  = 300,
+    xJitter   = 30,
+    yJitter   = 8,
+}
+
+local function startRiot()
+    if riotConnection then
+        riotConnection:Disconnect()
+        riotConnection = nil
+    end
+    local char = lp.Character
+    local hrp  = char and char:FindFirstChild("HumanoidRootPart")
+    if hrp then riotOriginalCF = hrp.CFrame end
+
+    local t0   = tick()
+    local seed = math.random(1000, 9999)
+    riotRunning = true
+
+    riotConnection = RunService.Heartbeat:Connect(function(dt)
+        local targetChar = lp.Character
+        local targetHRP  = targetChar
+            and targetChar:FindFirstChild("HumanoidRootPart")
+        if not riotRunning or not targetHRP then return end
+        local t = tick() - t0
+
+        local yaw   = math.rad(riotCfg.spinSpeed * dt)
+        local pitch = math.rad(
+            riotCfg.spinSpeed * 0.37 * dt * math.sin(t * 3.1)
+        )
+        local roll  = math.rad(
+            riotCfg.spinSpeed * 0.19 * dt * math.cos(t * 5.7 + seed)
+        )
+        local spinCF = targetHRP.CFrame
+            * CFrame.Angles(pitch, yaw, roll)
+
+        local spread = riotCfg.distance / 300
+        local jX = (math.random() - 0.5)
+                    * riotCfg.xJitter * spread * 2
+                    + math.noise(t * 9, seed, 0)
+                    * riotCfg.xJitter * spread
+        local jY = (math.random() - 0.5)
+                    * riotCfg.yJitter * spread
+                    + math.noise(0, t * 9, seed)
+                    * riotCfg.yJitter * spread * 0.3
+        local jZ = (math.random() - 0.5)
+                    * riotCfg.xJitter * spread * 2
+                    + math.noise(0, 0, t * 9 + seed)
+                    * riotCfg.xJitter * spread
+
+        local newY = math.max(spinCF.Position.Y + jY, SAFE_FLOOR)
+        targetHRP.CFrame = spinCF
+            + Vector3.new(jX, newY - spinCF.Position.Y, jZ)
+    end)
+end
+
+local function stopRiot()
+    riotRunning = false
+    if riotConnection then
+        riotConnection:Disconnect()
+        riotConnection = nil
+    end
+    local char = lp.Character
+    local hrp  = char and char:FindFirstChild("HumanoidRootPart")
+    if hrp and riotOriginalCF then
+        hrp.CFrame = riotOriginalCF
+    end
+    riotOriginalCF = nil
+end
+
+-- =============================================
+--   EVASION MODE
+-- =============================================
+
+local evasionConn   = nil
+local evasionActive = false
+local lastRepos     = 0
+local lastFwdPhase  = 0
+local lastUpPhase   = 0
+local hsFlip        = false
+local mlFlip        = false
+
+local evasionCfg = {
+    mode             = "Off",
+    useCharOrigin    = false,
+    baseRadius       = 500,
+    randomRange      = 1.0,
+    depthForward     = 0,
+    depthForwardFreq = 10,
+    depthUp          = 0,
+    depthUpFreq      = 30,
+    reposInterval    = 0.5,
+    fallbackRadius   = 500,
+    fallbackRandom   = 1.0,
+    offset           = 0,
+    hsDown           = 1.0,
+    hsUp             = 1.0,
+    mlDown           = 1.0,
+    mlUp             = 1.0,
+}
+
+local function findNearestProjectile(hrp)
+    local best, bd = nil, math.huge
+    for _, obj in pairs(workspace:GetChildren()) do
+        if obj:IsA("BasePart") then
+            local n = obj.Name:lower()
+            if n:find("projectile") or n:find("bullet") or n:find("core") then
+                local d = (obj.Position - hrp.Position).Magnitude
+                if d < bd then bd = d; best = obj end
+            end
+        end
+    end
+    return best
+end
+
+local function evasionRandom(hrp)
+    local r     = evasionCfg.baseRadius * evasionCfg.randomRange
+    local angle = math.random() * math.pi * 2
+    local dist  = math.random() * r
+    hrp.CFrame  = CFrame.new(
+        hrp.Position.X + math.cos(angle) * dist,
+        hrp.Position.Y + (math.random() - 0.5) * r * 0.3,
+        hrp.Position.Z + math.sin(angle) * dist
+    )
+end
+
+local function evasionProjectileMimic(hrp, dt)
+    local now = tick()
+    if now - lastRepos < evasionCfg.reposInterval then return end
+    lastRepos = now
+    local proj = findNearestProjectile(hrp)
+    if proj then
+        lastFwdPhase += dt * evasionCfg.depthForwardFreq
+        lastUpPhase  += dt * evasionCfg.depthUpFreq
+        local fwd = math.sin(lastFwdPhase) * evasionCfg.depthForward
+        local up  = math.sin(lastUpPhase)  * evasionCfg.depthUp
+        local projCF  = proj.CFrame
+        hrp.CFrame = CFrame.new(
+            proj.Position
+            + projCF.LookVector * fwd
+            + projCF.UpVector   * up
+        )
+    else
+        local r     = evasionCfg.fallbackRadius * evasionCfg.fallbackRandom
+        local angle = math.random() * math.pi * 2
+        hrp.CFrame  = CFrame.new(
+            hrp.Position.X + math.cos(angle) * r,
+            hrp.Position.Y + (math.random() - 0.5) * r * 0.2,
+            hrp.Position.Z + math.sin(angle) * r
+        )
+    end
+end
+
+local function evasionTranslocate(hrp)
+    hrp.CFrame = hrp.CFrame + hrp.CFrame.LookVector * evasionCfg.offset
+end
+
+local function evasionHitscan(hrp)
+    hsFlip = not hsFlip
+    hrp.CFrame = hrp.CFrame
+        + Vector3.new(0, hsFlip and -evasionCfg.hsDown or evasionCfg.hsUp, 0)
+end
+
+local function evasionMelee(hrp)
+    mlFlip = not mlFlip
+    hrp.CFrame = hrp.CFrame
+        + Vector3.new(0, mlFlip and -evasionCfg.mlDown or evasionCfg.mlUp, 0)
+end
+
+local function startEvasionMode()
+    if evasionConn then evasionConn:Disconnect(); evasionConn = nil end
+    if evasionCfg.mode == "Off" then return end
+    evasionActive = true
+    evasionConn = RunService.Heartbeat:Connect(function(dt)
+        if not evasionActive then return end
+        local char = lp.Character
+        if not char then return end
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+        local mode = evasionCfg.mode
+        if mode == "Random" then
+            evasionRandom(hrp)
+        elseif mode == "ProjectileMimic" then
+            evasionProjectileMimic(hrp, dt)
+        elseif mode == "Translocate" then
+            evasionTranslocate(hrp)
+        elseif mode == "Hitscan Strategy" then
+            evasionHitscan(hrp)
+        elseif mode == "Melee Strategy" then
+            evasionMelee(hrp)
+        end
+    end)
+end
+
+local function stopEvasionMode()
+    evasionActive = false
+    if evasionConn then evasionConn:Disconnect(); evasionConn = nil end
+end
+
+-- =============================================
+--   MOVEMENT TAB UI
+-- =============================================
+
+TabMovement:CreateSection("Better Void Spam")
+
+TabMovement:CreateToggle({
+    Name         = "Enable Better Void Spam",
+    CurrentValue = false,
+    Flag         = "BetterVoidSpam",
+    Callback     = function(val)
+        if val then
+            startBetterVoid()
+            notify("Void Spam", "Better Void Active!")
+        else
+            stopBetterVoid()
+            notify("Void Spam", "Better Void Off")
         end
     end,
 })
 
-VoidLeft:AddToggle("VelocitySpike", {
-    Text     = "Velocity Spike",
-    Default  = false,
-    Tooltip  = "Randomly spikes velocity — makes projectiles miss you",
-    Callback = function(val)
+TabMovement:CreateToggle({
+    Name         = "Velocity Spike",
+    CurrentValue = false,
+    Flag         = "VelocitySpike",
+    Callback     = function(val)
         if val then
             startVelSpike()
+            notify("Void Spam", "Velocity Spike Active!")
         else
             stopVelSpike()
+            notify("Void Spam", "Velocity Spike Off")
         end
     end,
 })
 
-VoidLeft:AddDivider()
-
--- =============================================
---   Meta Void Spam
---   Standard + Velocity Spike together
---   = the meta combo
--- =============================================
-
-VoidLeft:AddToggle("MetaVoidSpam", {
-    Text     = "Meta Void Spam",
-    Default  = false,
-    Tooltip  = "Standard Void + Velocity Spike — the meta combo",
-    Risky    = true,
-    Callback = function(val)
-        Toggles.VoidSpam:SetValue(val)
-        Toggles.VelocitySpike:SetValue(val)
-        if val then
-            Library:Notify("Meta Void Spam Active!", 3)
-        else
-            Library:Notify("Meta Void Spam Off", 2)
-        end
-    end,
-})
-
-VoidLeft:AddDivider()
-
--- =============================================
---   Anti Aim Toggle
--- =============================================
-
-VoidLeft:AddToggle("AntiAim", {
-    Text     = "Anti Aim",
-    Default  = false,
-    Tooltip  = "Sends fake camera rotation to server — breaks enemy hit detection",
-    Risky    = true,
-    Callback = function(val)
+TabMovement:CreateToggle({
+    Name         = "Anti Aim",
+    CurrentValue = false,
+    Flag         = "AntiAim",
+    Callback     = function(val)
         if val then
             startAntiAim()
-            Library:Notify("Anti Aim Active!", 3)
+            notify("Anti Aim", "Active!")
         else
             stopAntiAim()
-            Library:Notify("Anti Aim Off", 2)
+            notify("Anti Aim", "Off")
         end
     end,
 })
 
-VoidLeft:AddButton({
-    Text = "Stop All Void Features",
-    Func = function()
-        Toggles.VoidSpam:SetValue(false)
-        Toggles.VelocitySpike:SetValue(false)
-        Toggles.MetaVoidSpam:SetValue(false)
-        Toggles.AntiAim:SetValue(false)
-        Library:Notify("All void features stopped!", 2)
+TabMovement:CreateButton({
+    Name     = "Stop All Void Features",
+    Callback = function()
+        stopBetterVoid()
+        stopVelSpike()
+        stopAntiAim()
+        stopHideAttack()
+        notify("Void Spam", "All features stopped!")
     end,
 })
 
 -- =============================================
---   Settings
+--   HIDE / ATTACK SECTION
 -- =============================================
 
-VoidRight:AddSlider("VoidIntensitySlider", {
-    Text     = "Void Intensity",
-    Default  = 100,
-    Min      = 1,
-    Max      = 100,
-    Rounding = 0,
-    Suffix   = "%",
-    Tooltip  = "How extreme the void teleports are",
-    Callback = function(val)
-        VoidIntensity = val / 100
+TabMovement:CreateSection("Void Spam — Hide & Attack")
+
+TabMovement:CreateToggle({
+    Name         = "Enable Hide / Attack",
+    CurrentValue = false,
+    Flag         = "HideAttackEnabled",
+    Callback     = function(val)
+        if val then
+            -- Need wallbang hooked for attack shots
+            if not wbState.hooked then
+                WB.enabled = true
+                wbState:Start()
+            end
+            startHideAttack()
+            notify("Hide / Attack", "Active!")
+        else
+            stopHideAttack()
+            notify("Hide / Attack", "Off")
+        end
     end,
 })
 
-VoidRight:AddSlider("VelSpikeRateSlider", {
-    Text     = "Spike Rate",
-    Default  = 5,
-    Min      = 1,
-    Max      = 20,
-    Rounding = 0,
-    Suffix   = "x",
-    Tooltip  = "How often velocity spikes fire",
-    Callback = function(val)
-        velSpikeRate = 0.1 / val
+TabMovement:CreateSlider({
+    Name         = "Hide Time",
+    Range        = { 1, 200 },
+    Increment    = 1,
+    Suffix       = "x0.01s",
+    CurrentValue = 25,
+    Flag         = "HideTime",
+    Callback     = function(val)
+        hideAttackCfg.hideTime = val * 0.01
     end,
 })
 
-VoidRight:AddLabel(
-    "Void Ranges:\nY: 0 to 590,000\nX: 0 to 450,000\nZ: 0 to 230,000\n\n"..
-    "Camera locks to where\nyou were looking when\nyou enabled void spam.",
-    true
-)
+TabMovement:CreateSlider({
+    Name         = "Attack Time",
+    Range        = { 1, 100 },
+    Increment    = 1,
+    Suffix       = "x0.01s",
+    CurrentValue = 10,
+    Flag         = "AttackTime",
+    Callback     = function(val)
+        hideAttackCfg.attackTime = val * 0.01
+    end,
+})
+
+TabMovement:CreateSlider({
+    Name         = "Shoot Attempts",
+    Range        = { 1, 10 },
+    Increment    = 1,
+    Suffix       = "x",
+    CurrentValue = 1,
+    Flag         = "ShootAttempts",
+    Callback     = function(val)
+        hideAttackCfg.shootAttempts = val
+    end,
+})
+
+-- =============================================
+--   SLINGSHOT BYPASS
+-- =============================================
+
+TabMovement:CreateSection("Slingshot Bypass")
+
+TabMovement:CreateToggle({
+    Name         = "Slingshot Bypass",
+    CurrentValue = false,
+    Flag         = "SlingshotBypass",
+    Callback     = function(val)
+        if val then
+            startSlingshot()
+            notify("Slingshot", "Bypass Active!")
+        else
+            stopSlingshot()
+            notify("Slingshot", "Bypass Off")
+        end
+    end,
+})
+
+-- =============================================
+--   RIOT ABUSER
+-- =============================================
+
+TabMovement:CreateSection("Riot Abuser")
+
+TabMovement:CreateToggle({
+    Name         = "Riot Abuser",
+    CurrentValue = false,
+    Flag         = "RiotAbuser",
+    Callback     = function(val)
+        if val then
+            startRiot()
+            notify("Riot Abuser", "Active!")
+        else
+            stopRiot()
+            notify("Riot Abuser", "Off")
+        end
+    end,
+})
+
+TabMovement:CreateSlider({
+    Name         = "Spin Speed",
+    Range        = { 1, 2000 },
+    Increment    = 1,
+    Suffix       = " deg/s",
+    CurrentValue = 720,
+    Flag         = "RiotSpin",
+    Callback     = function(val)
+        riotCfg.spinSpeed = val
+    end,
+})
+
+TabMovement:CreateSlider({
+    Name         = "Riot Distance",
+    Range        = { 1, 1000 },
+    Increment    = 1,
+    Suffix       = " studs",
+    CurrentValue = 300,
+    Flag         = "RiotDist",
+    Callback     = function(val)
+        riotCfg.distance = val
+    end,
+})
+
+TabMovement:CreateSlider({
+    Name         = "X Jitter",
+    Range        = { 0, 100 },
+    Increment    = 1,
+    Suffix       = "",
+    CurrentValue = 30,
+    Flag         = "RiotXJitter",
+    Callback     = function(val)
+        riotCfg.xJitter = val
+    end,
+})
+
+TabMovement:CreateSlider({
+    Name         = "Y Jitter",
+    Range        = { 0, 50 },
+    Increment    = 1,
+    Suffix       = "",
+    CurrentValue = 8,
+    Flag         = "RiotYJitter",
+    Callback     = function(val)
+        riotCfg.yJitter = val
+    end,
+})
+
+TabMovement:CreateButton({
+    Name     = "Stop Riot",
+    Callback = function()
+        stopRiot()
+        notify("Riot Abuser", "Stopped!")
+    end,
+})
+
+-- =============================================
+--   EVASION MODE
+-- =============================================
+
+TabMovement:CreateSection("Evasion Mode")
+
+TabMovement:CreateDropdown({
+    Name         = "Evasion Mode",
+    Options      = {
+        "Off",
+        "Random",
+        "ProjectileMimic",
+        "Translocate",
+        "Hitscan Strategy",
+        "Melee Strategy",
+    },
+    CurrentOption = { "Off" },
+    Flag          = "EvasionMode",
+    Callback      = function(val)
+        local mode = type(val) == "table" and val[1] or val
+        evasionCfg.mode = mode
+        if mode == "Off" then
+            stopEvasionMode()
+            notify("Evasion", "Off")
+        else
+            startEvasionMode()
+            notify("Evasion", mode .. " Active!")
+        end
+    end,
+})
+
+TabMovement:CreateSection("Evasion Settings")
+
+TabMovement:CreateToggle({
+    Name         = "Use Character Origin",
+    CurrentValue = false,
+    Flag         = "EvasionCharOrigin",
+    Callback     = function(val)
+        evasionCfg.useCharOrigin = val
+    end,
+})
+
+TabMovement:CreateSlider({
+    Name         = "Base Radius",
+    Range        = { 100, 1000000 },
+    Increment    = 100,
+    Suffix       = " studs",
+    CurrentValue = 500,
+    Flag         = "EvasionBaseRadius",
+    Callback     = function(val)
+        evasionCfg.baseRadius = val
+    end,
+})
+
+TabMovement:CreateSlider({
+    Name         = "Random Range",
+    Range        = { 1, 20 },
+    Increment    = 1,
+    Suffix       = "x0.1",
+    CurrentValue = 10,
+    Flag         = "EvasionRandomRange",
+    Callback     = function(val)
+        evasionCfg.randomRange = val * 0.1
+    end,
+})
+
+TabMovement:CreateSlider({
+    Name         = "Depth Forward",
+    Range        = { -50, 50 },
+    Increment    = 1,
+    Suffix       = "x0.1",
+    CurrentValue = 0,
+    Flag         = "EvasionDepthFwd",
+    Callback     = function(val)
+        evasionCfg.depthForward = val * 0.1
+    end,
+})
+
+TabMovement:CreateSlider({
+    Name         = "Depth Forward Freq",
+    Range        = { 0, 50 },
+    Increment    = 1,
+    Suffix       = "",
+    CurrentValue = 10,
+    Flag         = "EvasionDepthFwdFreq",
+    Callback     = function(val)
+        evasionCfg.depthForwardFreq = val
+    end,
+})
+
+TabMovement:CreateSlider({
+    Name         = "Depth Up",
+    Range        = { -50, 50 },
+    Increment    = 1,
+    Suffix       = "x0.1",
+    CurrentValue = 0,
+    Flag         = "EvasionDepthUp",
+    Callback     = function(val)
+        evasionCfg.depthUp = val * 0.1
+    end,
+})
+
+TabMovement:CreateSlider({
+    Name         = "Depth Up Freq",
+    Range        = { 0, 60 },
+    Increment    = 1,
+    Suffix       = "",
+    CurrentValue = 30,
+    Flag         = "EvasionDepthUpFreq",
+    Callback     = function(val)
+        evasionCfg.depthUpFreq = val
+    end,
+})
+
+TabMovement:CreateSlider({
+    Name         = "Reposition Interval",
+    Range        = { 1, 40 },
+    Increment    = 1,
+    Suffix       = "x0.1s",
+    CurrentValue = 5,
+    Flag         = "EvasionReposInterval",
+    Callback     = function(val)
+        evasionCfg.reposInterval = val * 0.1
+    end,
+})
+
+TabMovement:CreateSlider({
+    Name         = "Fallback Base Radius",
+    Range        = { 5, 1000000 },
+    Increment    = 5,
+    Suffix       = " studs",
+    CurrentValue = 500,
+    Flag         = "EvasionFallbackRadius",
+    Callback     = function(val)
+        evasionCfg.fallbackRadius = val
+    end,
+})
+
+TabMovement:CreateSlider({
+    Name         = "Fallback Random Range",
+    Range        = { 1, 50 },
+    Increment    = 1,
+    Suffix       = "x0.1",
+    CurrentValue = 10,
+    Flag         = "EvasionFallbackRandom",
+    Callback     = function(val)
+        evasionCfg.fallbackRandom = val * 0.1
+    end,
+})
+
+TabMovement:CreateSlider({
+    Name         = "Translocate Offset",
+    Range        = { -50, 60 },
+    Increment    = 1,
+    Suffix       = "x0.1",
+    CurrentValue = 0,
+    Flag         = "EvasionTransOffset",
+    Callback     = function(val)
+        evasionCfg.offset = val * 0.1
+    end,
+})
+
+TabMovement:CreateSlider({
+    Name         = "Hitscan Down Offset",
+    Range        = { 1, 50 },
+    Increment    = 1,
+    Suffix       = "x0.1",
+    CurrentValue = 10,
+    Flag         = "EvasionHSDown",
+    Callback     = function(val)
+        evasionCfg.hsDown = val * 0.1
+    end,
+})
+
+TabMovement:CreateSlider({
+    Name         = "Hitscan Up Offset",
+    Range        = { 1, 50 },
+    Increment    = 1,
+    Suffix       = "x0.1",
+    CurrentValue = 10,
+    Flag         = "EvasionHSUp",
+    Callback     = function(val)
+        evasionCfg.hsUp = val * 0.1
+    end,
+})
+
+TabMovement:CreateSlider({
+    Name         = "Melee Down Offset",
+    Range        = { 1, 60 },
+    Increment    = 1,
+    Suffix       = "x0.1",
+    CurrentValue = 10,
+    Flag         = "EvasionMLDown",
+    Callback     = function(val)
+        evasionCfg.mlDown = val * 0.1
+    end,
+})
+
+TabMovement:CreateSlider({
+    Name         = "Melee Up Offset",
+    Range        = { 1, 60 },
+    Increment    = 1,
+    Suffix       = "x0.1",
+    CurrentValue = 10,
+    Flag         = "EvasionMLUp",
+    Callback     = function(val)
+        evasionCfg.mlUp = val * 0.1
+    end,
+})
+
+TabMovement:CreateButton({
+    Name     = "Stop Evasion",
+    Callback = function()
+        stopEvasionMode()
+        notify("Evasion", "Stopped!")
+    end,
+})
 
 -- ============================================================
 --   TAB 3 — KATANA
 -- ============================================================
 
-local KatLeft  = Tabs.Katana:AddLeftGroupbox("Katana Fast Deflect")
-local KatRight = Tabs.Katana:AddRightGroupbox("Info")
+TabKatana:CreateSection("Katana Fast Deflect")
 
 local katanaLoopActive = false
 local katanaLoopThread = nil
 
 local function setFastKatanaDeflect()
     task.wait(0.01)
-
     for _, v in pairs(getgc(true)) do
         if type(v) == "table" then
             if rawget(v, "DeflectCooldown") then
@@ -929,14 +2020,11 @@ local function setFastKatanaDeflect()
             end
         end
     end
-
     task.wait(0.01)
-
     pcall(function()
         local Modules = ReplicatedStorage:FindFirstChild("Modules")
         if not Modules then return end
         local lib = Modules:FindFirstChild("ItemLibrary")
-            or Modules:FindFirstChild("ItemLibrary", true)
         if not lib then return end
         local ItemLibrary = require(lib)
         if ItemLibrary and ItemLibrary.Items then
@@ -949,9 +2037,7 @@ local function setFastKatanaDeflect()
             end
         end
     end)
-
     task.wait(0.01)
-
     pcall(function()
         local MeleeModule = safeRequire(
             lp.PlayerScripts.Modules.ItemTypes.Melee
@@ -970,11 +2056,11 @@ local function setFastKatanaDeflect()
     end)
 end
 
-KatLeft:AddToggle("KatanaFastDeflect", {
-    Text     = "Fast Katana Deflect",
-    Default  = false,
-    Tooltip  = "Removes deflect cooldown and duration for katana",
-    Callback = function(val)
+TabKatana:CreateToggle({
+    Name         = "Fast Katana Deflect",
+    CurrentValue = false,
+    Flag         = "KatanaFastDeflect",
+    Callback     = function(val)
         katanaLoopActive = val
         if val then
             task.wait(0.5)
@@ -987,37 +2073,30 @@ KatLeft:AddToggle("KatanaFastDeflect", {
                     end
                 end
             end)
-            Library:Notify("Fast Katana Deflect Active!", 3)
+            notify("Katana", "Fast Deflect Active!")
         else
             if katanaLoopThread then
                 pcall(task.cancel, katanaLoopThread)
                 katanaLoopThread = nil
             end
-            Library:Notify("Katana Deflect Off", 2)
+            notify("Katana", "Fast Deflect Off")
         end
     end,
 })
 
-KatLeft:AddButton({
-    Text = "Apply Once Now",
-    Func = function()
+TabKatana:CreateButton({
+    Name     = "Apply Once Now",
+    Callback = function()
         task.spawn(setFastKatanaDeflect)
-        Library:Notify("Katana deflect applied!", 2)
+        notify("Katana", "Deflect applied!")
     end,
 })
-
-KatRight:AddLabel(
-    "Removes DeflectCooldown\nand DeflectDuration\nfrom the Katana module.\n\n"..
-    "Re-applies every 3 seconds\nto stay active after respawn.",
-    true
-)
 
 -- ============================================================
 --   TAB 4 — SPOOF
 -- ============================================================
 
-local SpoofLeft  = Tabs.Spoof:AddLeftGroupbox("Name Spoof")
-local SpoofRight = Tabs.Spoof:AddRightGroupbox("Level Spoof")
+TabSpoof:CreateSection("Name Spoof")
 
 local spoofConfig = {
     enabled      = false,
@@ -1029,11 +2108,11 @@ local spoofConfig = {
 
 local spoofLevelConn = nil
 
-SpoofLeft:AddToggle("NameSpoofEnabled", {
-    Text     = "Enable Name Spoof",
-    Default  = false,
-    Tooltip  = "Spoofs your name and all enemy names",
-    Callback = function(val)
+TabSpoof:CreateToggle({
+    Name         = "Enable Name Spoof",
+    CurrentValue = false,
+    Flag         = "NameSpoofEnabled",
+    Callback     = function(val)
         spoofConfig.enabled = val
         if val then
             pcall(function()
@@ -1048,20 +2127,19 @@ SpoofLeft:AddToggle("NameSpoofEnabled", {
                     end)
                 end
             end
-            Library:Notify("Name spoof active!", 3)
+            notify("Spoof", "Name Spoof Active!")
         else
-            Library:Notify("Name spoof off — rejoin to reset", 3)
+            notify("Spoof", "Name Spoof Off — rejoin to reset")
         end
     end,
 })
 
-SpoofLeft:AddInput("YourSpoofName", {
-    Default          = "kicia",
-    Numeric          = false,
-    Finished         = true,
-    Text             = "Your Spoofed Name",
-    Placeholder      = "Enter your spoof name",
-    ClearTextOnFocus = false,
+TabSpoof:CreateInput({
+    Name             = "Your Spoofed Name",
+    CurrentValue     = "kicia",
+    PlaceholderText  = "Enter your spoof name",
+    NumbersOnly      = false,
+    Flag             = "YourSpoofName",
     Callback         = function(val)
         spoofConfig.clientName = val
         if spoofConfig.enabled then
@@ -1073,23 +2151,22 @@ SpoofLeft:AddInput("YourSpoofName", {
     end,
 })
 
-SpoofLeft:AddInput("EnemySpoofName", {
-    Default          = "rivalscheats.shop",
-    Numeric          = false,
-    Finished         = true,
-    Text             = "Enemy Spoofed Name",
-    Placeholder      = "Enter enemy spoof name",
-    ClearTextOnFocus = false,
+TabSpoof:CreateInput({
+    Name             = "Enemy Spoofed Name",
+    CurrentValue     = "rivalscheats.shop",
+    PlaceholderText  = "Enter enemy spoof name",
+    NumbersOnly      = false,
+    Flag             = "EnemySpoofName",
     Callback         = function(val)
         spoofConfig.enemyName = val
     end,
 })
 
-SpoofLeft:AddButton({
-    Text = "Apply Names Now",
-    Func = function()
+TabSpoof:CreateButton({
+    Name     = "Apply Names Now",
+    Callback = function()
         if not spoofConfig.enabled then
-            Library:Notify("Enable Name Spoof first!", 2)
+            notify("Spoof", "Enable Name Spoof first!")
             return
         end
         pcall(function() lp.Name        = spoofConfig.clientName end)
@@ -1102,7 +2179,7 @@ SpoofLeft:AddButton({
                 end)
             end
         end
-        Library:Notify("Names applied!", 2)
+        notify("Spoof", "Names applied!")
     end,
 })
 
@@ -1116,18 +2193,15 @@ Players.PlayerAdded:Connect(function(player)
     end
 end)
 
-SpoofRight:AddToggle("LevelSpoofEnabled", {
-    Text     = "Enable Level Spoof",
-    Default  = false,
-    Tooltip  = "Spoofs your level every heartbeat",
-    Callback = function(val)
+TabSpoof:CreateSection("Level Spoof")
+
+TabSpoof:CreateToggle({
+    Name         = "Enable Level Spoof",
+    CurrentValue = false,
+    Flag         = "LevelSpoofEnabled",
+    Callback     = function(val)
         spoofConfig.levelEnabled = val
         if val then
-            if not lp:GetAttribute("Level") then
-                Library:Notify("Level attribute not found!", 3)
-                Toggles.LevelSpoofEnabled:SetValue(false)
-                return
-            end
             spoofLevelConn = RunService.Heartbeat:Connect(function()
                 pcall(function()
                     local stats = lp:FindFirstChild("CustomLeaderstats")
@@ -1138,32 +2212,32 @@ SpoofRight:AddToggle("LevelSpoofEnabled", {
                     lp:SetAttribute("Level", spoofConfig.levelSpoof)
                 end)
             end)
-            Library:Notify("Level spoof active: " .. spoofConfig.levelSpoof, 3)
+            notify("Spoof", "Level Spoof Active: " .. spoofConfig.levelSpoof)
         else
             if spoofLevelConn then
                 spoofLevelConn:Disconnect()
                 spoofLevelConn = nil
             end
-            Library:Notify("Level spoof off", 2)
+            notify("Spoof", "Level Spoof Off")
         end
     end,
 })
 
-SpoofRight:AddSlider("SpoofLevel", {
-    Text     = "Spoof Level",
-    Default  = 1381,
-    Min      = 1,
-    Max      = 9999,
-    Rounding = 0,
-    Tooltip  = "The level to display",
-    Callback = function(val)
+TabSpoof:CreateSlider({
+    Name         = "Spoof Level",
+    Range        = { 1, 9999 },
+    Increment    = 1,
+    Suffix       = "",
+    CurrentValue = 1381,
+    Flag         = "SpoofLevel",
+    Callback     = function(val)
         spoofConfig.levelSpoof = val
     end,
 })
 
-SpoofRight:AddButton({
-    Text = "Apply Level Now",
-    Func = function()
+TabSpoof:CreateButton({
+    Name     = "Apply Level Now",
+    Callback = function()
         pcall(function()
             local stats = lp:FindFirstChild("CustomLeaderstats")
             if stats then
@@ -1172,607 +2246,301 @@ SpoofRight:AddButton({
             end
             lp:SetAttribute("Level", spoofConfig.levelSpoof)
         end)
-        Library:Notify("Level set to " .. spoofConfig.levelSpoof, 2)
+        notify("Spoof", "Level set to " .. spoofConfig.levelSpoof)
     end,
 })
 
 -- ============================================================
---   TAB 5 — TELEPORT
+--   TAB 5 — WALLBANG
 -- ============================================================
 
-local TpLeft  = Tabs.Teleport:AddLeftGroupbox("Player Teleport")
-local TpRight = Tabs.Teleport:AddRightGroupbox("Settings")
+TabWallbang:CreateSection("Wallbang")
 
-local tpConfig = {
-    autoTP      = false,
-    autoTarget  = nil,
-    autoDelay   = 1,
-    onlyInGame  = true,
-    stayOnTop   = true,  -- stay above their head
-}
-
-local autoTPThread = nil
-
--- =============================================
---   Visible / In-Game Check
--- =============================================
-
-local function isPlayerInGame(player)
-    if not tpConfig.onlyInGame then return true end
-    if player == lp then return false end
-    local char = player.Character
-    if not char then return false end
-    local hum = char:FindFirstChildWhichIsA("Humanoid")
-    if not hum or hum.Health <= 0 then return false end
-    if not char:IsDescendantOf(workspace) then return false end
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return false end
-    local myChar = lp.Character
-    if myChar then
-        local myHRP = myChar:FindFirstChild("HumanoidRootPart")
-        if myHRP then
-            local dist = (myHRP.Position - hrp.Position).Magnitude
-            if dist > 5000 then return false end
-        end
-    end
-    return true
-end
-
--- =============================================
---   Teleport: stay on top of target head
--- =============================================
-
-local stayOnTopConn   = nil
-local stayOnTopTarget = nil
-
-local function startStayOnTop(target)
-    if stayOnTopConn then
-        stayOnTopConn:Disconnect()
-        stayOnTopConn = nil
-    end
-    stayOnTopTarget = target
-    stayOnTopConn = RunService.Heartbeat:Connect(function()
-        pcall(function()
-            if not stayOnTopTarget then return end
-            local tChar = stayOnTopTarget.Character
-            if not tChar then return end
-            local tHRP = tChar:FindFirstChild("HumanoidRootPart")
-            if not tHRP then return end
-            local myChar = lp.Character
-            if not myChar then return end
-            local myHRP = myChar:FindFirstChild("HumanoidRootPart")
-            if not myHRP then return end
-            -- Stay 5 studs above their HRP (above head)
-            myHRP.CFrame = CFrame.new(
-                tHRP.Position + Vector3.new(0, 5, 0)
-            )
-        end)
-    end)
-end
-
-local function stopStayOnTop()
-    if stayOnTopConn then
-        stayOnTopConn:Disconnect()
-        stayOnTopConn = nil
-    end
-    stayOnTopTarget = nil
-end
-
-local function teleportToPlayer(player)
-    if not isPlayerInGame(player) then
-        Library:Notify(player.Name .. " is in lobby — skipped!", 3)
-        return false
-    end
-    local char   = player.Character
-    local myChar = lp.Character
-    if not char or not myChar then return false end
-    local tHRP = char:FindFirstChild("HumanoidRootPart")
-    local myHRP = myChar:FindFirstChild("HumanoidRootPart")
-    if not tHRP or not myHRP then return false end
-
-    -- TP to top of their head
-    myHRP.CFrame = CFrame.new(tHRP.Position + Vector3.new(0, 5, 0))
-
-    if tpConfig.stayOnTop then
-        startStayOnTop(player)
-    end
-
-    Library:Notify("Teleported to " .. player.Name, 2)
-    return true
-end
-
-TpLeft:AddDropdown("TpTargetPlayer", {
-    Text       = "Select Player",
-    Values     = getPlayerList(),
-    Default    = 1,
-    Multi      = false,
-    Searchable = true,
-    Tooltip    = "Player to teleport to",
-    Callback   = function(val)
-        tpConfig.autoTarget = val
+TabWallbang:CreateToggle({
+    Name         = "Enable Wallbang",
+    CurrentValue = false,
+    Flag         = "WBEnabled",
+    Callback     = function(val)
+        WB.enabled = val
+        if val then wbState:Start() else wbState:Shutdown() end
     end,
 })
 
-TpLeft:AddButton({
-    Text = "Refresh Player List",
-    Func = function()
-        Options.TpTargetPlayer:SetValues(getPlayerList())
-        Library:Notify("Player list refreshed!", 2)
+TabWallbang:CreateDropdown({
+    Name          = "Hit Part",
+    Options       = { "Head", "Body" },
+    CurrentOption = { "Head" },
+    Flag          = "WBHitPart",
+    Callback      = function(val)
+        WB.hitPart = type(val) == "table" and val[1] or val
     end,
 })
 
-TpLeft:AddButton({
-    Text = "Teleport Now",
-    Func = function()
-        local targetName = Options.TpTargetPlayer.Value
-        if not targetName or targetName == "" then
-            Library:Notify("Select a player first!", 2)
-            return
-        end
-        local target = Players:FindFirstChild(targetName)
-        if not target then
-            Library:Notify("Player not found!", 2)
-            return
-        end
-        teleportToPlayer(target)
+TabWallbang:CreateButton({
+    Name     = "Debug Target",
+    Callback = function()
+        local tg = wbState:find()
+        notify("Wallbang", tg and "Target: " .. tg.Name or "No target", 3)
     end,
 })
 
-TpLeft:AddToggle("StayOnTop", {
-    Text     = "Stay On Top Of Player",
-    Default  = true,
-    Tooltip  = "Continuously stays above target player head",
-    Callback = function(val)
-        tpConfig.stayOnTop = val
-        if not val then stopStayOnTop() end
-    end,
-})
+TabWallbang:CreateSection("Wallbang Teleport Desync — Offsets")
 
-TpLeft:AddButton({
-    Text = "Stop Staying On Top",
-    Func = function()
-        stopStayOnTop()
-        Library:Notify("Stopped staying on top!", 2)
-    end,
-})
-
-TpLeft:AddDivider()
-
-TpLeft:AddToggle("AutoTP", {
-    Text     = "Auto Teleport Loop",
-    Default  = false,
-    Tooltip  = "Keeps teleporting to selected player on a loop",
-    Callback = function(val)
-        tpConfig.autoTP = val
-        if val then
-            autoTPThread = task.spawn(function()
-                while tpConfig.autoTP do
-                    local targetName = Options.TpTargetPlayer.Value
-                    if targetName and targetName ~= "" then
-                        local target = Players:FindFirstChild(targetName)
-                        if target then teleportToPlayer(target) end
-                    end
-                    task.wait(tpConfig.autoDelay)
-                end
-            end)
-        else
-            if autoTPThread then
-                pcall(task.cancel, autoTPThread)
-                autoTPThread = nil
-            end
-            stopStayOnTop()
-        end
-    end,
-})
-
-TpRight:AddSlider("AutoTPDelay", {
-    Text     = "Auto TP Delay",
-    Default  = 10,
-    Min      = 1,
-    Max      = 50,
-    Rounding = 0,
-    Suffix   = "x0.1s",
-    Tooltip  = "Delay between auto teleports",
-    Callback = function(val)
-        tpConfig.autoDelay = val * 0.1
-    end,
-})
-
-TpRight:AddToggle("VisibleCheck", {
-    Text     = "In-Game Check (Skip Lobby)",
-    Default  = true,
-    Tooltip  = "Only TP to players in game not lobby",
-    Callback = function(val)
-        tpConfig.onlyInGame = val
-    end,
-})
-
-TpRight:AddLabel(
-    "In-Game Check skips\nplayers still in lobby.\n\nStay On Top keeps\nyou above their head\ncontinuously.",
-    true
-)
-
--- ============================================================
---   TAB 6 — HITBOX
--- ============================================================
-
-local HitboxLeft  = Tabs.Hitbox:AddLeftGroupbox("Hitbox Expander")
-local HitboxRight = Tabs.Hitbox:AddRightGroupbox("Settings")
-
-local hitboxConfig = {
-    enabled      = false,
-    size         = 10,
-    part         = "HitboxHead",
-    transparency = 0.8,
-    showESP      = true,
-}
-
-local originalSizes = {}
-local hitboxConn    = nil
-
-local function getHitboxPart(player)
-    local char = workspace:FindFirstChild(player.Name)
-    if not char then return nil end
-    local hitbox = char:FindFirstChild(hitboxConfig.part)
-    if not hitbox then return nil end
-    if not hitbox:IsA("BasePart") then return nil end
-    return hitbox
-end
-
-local function storeOriginalSize(player, hitbox)
-    if originalSizes[player.Name] then return end
-    local attrSize = hitbox:GetAttribute("OriginalSize")
-    if attrSize then
-        originalSizes[player.Name] = attrSize
-        return
-    end
-    local sizeVal = hitbox:FindFirstChild("OriginalSize")
-    if sizeVal then
-        originalSizes[player.Name] = sizeVal.Value
-        return
-    end
-    originalSizes[player.Name] = hitbox.Size
-end
-
-local function expandHitbox(player)
-    if player == lp then return end
-    local hitbox = getHitboxPart(player)
-    if not hitbox then return end
-    storeOriginalSize(player, hitbox)
-    local newSize = Vector3.new(
-        hitboxConfig.size,
-        hitboxConfig.size,
-        hitboxConfig.size
-    )
-    pcall(function()
-        hitbox.Size = newSize
-        if hitboxConfig.showESP then
-            hitbox.Transparency  = hitboxConfig.transparency
-            hitbox.Color         = Color3.fromRGB(255, 50, 50)
-            hitbox.Material      = Enum.Material.Neon
-            hitbox.CanCollide    = false
-            hitbox.CastShadow    = false
-        else
-            hitbox.Transparency  = 1
-        end
-    end)
-end
-
-local function restoreHitbox(player)
-    local hitbox = getHitboxPart(player)
-    if not hitbox then return end
-    local original = originalSizes[player.Name]
-    if not original then return end
-    pcall(function()
-        hitbox.Size         = original
-        hitbox.Transparency = 1
-        hitbox.Material     = Enum.Material.SmoothPlastic
-        hitbox.Color        = Color3.fromRGB(255, 255, 255)
-    end)
-    originalSizes[player.Name] = nil
-end
-
-local function expandAll()
-    for _, player in pairs(Players:GetPlayers()) do
-        if player ~= lp then
-            pcall(function() expandHitbox(player) end)
-        end
-    end
-end
-
-local function restoreAll()
-    for _, player in pairs(Players:GetPlayers()) do
-        pcall(function() restoreHitbox(player) end)
-    end
-    originalSizes = {}
-end
-
-HitboxLeft:AddToggle("HitboxEnabled", {
-    Text     = "Enable Hitbox Expander",
-    Default  = false,
-    Tooltip  = "Expands HitboxHead on all players",
-    Risky    = true,
-    Callback = function(val)
-        hitboxConfig.enabled = val
-        if val then
-            expandAll()
-            hitboxConn = RunService.Heartbeat:Connect(function()
-                for _, player in pairs(Players:GetPlayers()) do
-                    if player ~= lp then
-                        pcall(function()
-                            local hitbox = getHitboxPart(player)
-                            if hitbox then
-                                local targetSize = Vector3.new(
-                                    hitboxConfig.size,
-                                    hitboxConfig.size,
-                                    hitboxConfig.size
-                                )
-                                if hitbox.Size ~= targetSize then
-                                    expandHitbox(player)
-                                end
-                            end
-                        end)
-                    end
-                end
-            end)
-            Library:Notify("Hitbox Expander Active! Size: "
-                .. hitboxConfig.size, 3)
-        else
-            restoreAll()
-            if hitboxConn then
-                hitboxConn:Disconnect()
-                hitboxConn = nil
-            end
-            Library:Notify("Hitbox restored", 2)
-        end
-    end,
-})
-
-HitboxLeft:AddButton({
-    Text = "Expand All Now",
-    Func = function()
-        expandAll()
-        Library:Notify("All hitboxes expanded!", 2)
-    end,
-})
-
-HitboxLeft:AddButton({
-    Text = "Restore All Now",
-    Func = function()
-        restoreAll()
-        Library:Notify("All hitboxes restored!", 2)
-    end,
-})
-
-HitboxLeft:AddDivider()
-
-HitboxLeft:AddDropdown("SingleTargetHitbox", {
-    Text       = "Single Player Target",
-    Values     = getPlayerList(),
-    Default    = 1,
-    Searchable = true,
-    Tooltip    = "Expand hitbox for one player",
-    Callback   = function(_) end,
-})
-
-HitboxLeft:AddButton({
-    Text = "Expand Selected",
-    Func = function()
-        local name   = Options.SingleTargetHitbox.Value
-        local target = Players:FindFirstChild(name)
-        if not target then
-            Library:Notify("Player not found!", 2)
-            return
-        end
-        expandHitbox(target)
-        Library:Notify("Expanded " .. name .. " hitbox!", 2)
-    end,
-})
-
-HitboxLeft:AddButton({
-    Text = "Restore Selected",
-    Func = function()
-        local name   = Options.SingleTargetHitbox.Value
-        local target = Players:FindFirstChild(name)
-        if not target then
-            Library:Notify("Player not found!", 2)
-            return
-        end
-        restoreHitbox(target)
-        Library:Notify("Restored " .. name .. " hitbox!", 2)
-    end,
-})
-
-HitboxRight:AddSlider("HitboxSize", {
-    Text     = "Hitbox Size",
-    Default  = 10,
-    Min      = 1,
-    Max      = 60,
-    Rounding = 0,
-    Suffix   = " studs",
-    Tooltip  = "Size of expanded HitboxHead",
-    Callback = function(val)
-        hitboxConfig.size = val
-        if hitboxConfig.enabled then expandAll() end
-    end,
-})
-
-HitboxRight:AddToggle("HitboxVisual", {
-    Text     = "Show Hitbox Visual",
-    Default  = true,
-    Tooltip  = "Makes hitbox visible (red)",
-    Callback = function(val)
-        hitboxConfig.showESP = val
-        if hitboxConfig.enabled then expandAll() end
-    end,
-})
-
-HitboxRight:AddSlider("HitboxTransparency", {
-    Text     = "Hitbox Transparency",
-    Default  = 8,
-    Min      = 0,
-    Max      = 10,
-    Rounding = 0,
-    Suffix   = "x0.1",
-    Tooltip  = "How transparent the hitbox looks",
-    Callback = function(val)
-        hitboxConfig.transparency = val * 0.1
-        if hitboxConfig.enabled then expandAll() end
-    end,
-})
-
-HitboxRight:AddDropdown("HitboxPartName", {
-    Text     = "Hitbox Part Target",
-    Values   = { "HitboxHead", "HitboxBody", "HitboxLegs" },
-    Default  = 1,
-    Multi    = false,
-    Tooltip  = "Which hitbox part to expand",
-    Callback = function(val)
-        if hitboxConfig.enabled then restoreAll() end
-        hitboxConfig.part = val
-        if hitboxConfig.enabled then expandAll() end
-    end,
-})
-
--- Respawn hooks
-Players.PlayerAdded:Connect(function(player)
-    player.CharacterAdded:Connect(function()
-        if hitboxConfig.enabled and player ~= lp then
-            task.wait(0.5)
-            pcall(function() expandHitbox(player) end)
-        end
-    end)
-end)
-
-for _, player in pairs(Players:GetPlayers()) do
-    if player ~= lp then
-        player.CharacterAdded:Connect(function()
-            if hitboxConfig.enabled then
-                task.wait(0.5)
-                pcall(function()
-                    originalSizes[player.Name] = nil
-                    expandHitbox(player)
-                end)
-            end
-        end)
-    end
-end
-
--- ============================================================
---   TAB 7 — UI SETTINGS
--- ============================================================
-
-local MenuGroup = Tabs.UISettings:AddLeftGroupbox("Menu")
-
-MenuGroup:AddToggle("KeybindMenuOpen", {
-    Default  = Library.KeybindFrame.Visible,
-    Text     = "Open Keybind Menu",
-    Callback = function(val)
-        Library.KeybindFrame.Visible = val
-    end,
-})
-
-MenuGroup:AddToggle("ShowCustomCursor", {
-    Text     = "Custom Cursor",
-    Default  = true,
-    Callback = function(val)
-        Library.ShowCustomCursor = val
-    end,
-})
-
-MenuGroup:AddDivider()
-
-MenuGroup:AddLabel("Menu Keybind"):AddKeyPicker("MenuKeybind", {
-    Default = "RightShift",
-    NoUI    = true,
-    Text    = "Menu Keybind",
-})
-
-MenuGroup:AddButton({
-    Text = "Unload",
-    Func = function()
-        -- Clean up everything
-        stopVoidSpam()
-        stopVelSpike()
-        stopAntiAim()
-        stopStayOnTop()
-        restoreAll()
-        cleanTripESP()
-
-        if noCooldownConn    then noCooldownConn:Disconnect()    end
-        if instantReloadConn then instantReloadConn:Disconnect() end
-        if infiniteAmmoConn  then infiniteAmmoConn:Disconnect()  end
-        if rapidBurstConn    then rapidBurstConn:Disconnect()    end
-        if instantChargeConn then instantChargeConn:Disconnect() end
-        if infiniteDaggersConn then infiniteDaggersConn:Disconnect() end
-        if rapidDaggerConn   then rapidDaggerConn:Disconnect()   end
-        if spoofLevelConn    then spoofLevelConn:Disconnect()    end
-        if tripDetectConn    then tripDetectConn:Disconnect()    end
-        if hitboxConn        then hitboxConn:Disconnect()        end
-        if katanaLoopThread  then pcall(task.cancel, katanaLoopThread) end
-
-        Library:Unload()
-    end,
-})
-
-Library.ToggleKeybind = Options.MenuKeybind
-
--- ============================================================
---   Watermark
--- ============================================================
-
-Library:SetWatermarkVisibility(true)
-
-local frameTimer = tick()
-local frameCount = 0
-local currentFPS = 60
-
-local function getPing()
-    local ok, val = pcall(function()
-        return math.floor(
-            game:GetService("Stats")
-                .Network.ServerStatsItem["Data Ping"]:GetValue()
+TabWallbang:CreateSlider({
+    Name         = "Offset 1 Y",
+    Range        = { -50, 100 },
+    Increment    = 1,
+    Suffix       = " studs",
+    CurrentValue = 5,
+    Flag         = "WBOffset1Y",
+    Callback     = function(val)
+        wbDesyncCfg.offset1 = Vector3.new(
+            wbDesyncCfg.offset1.X,
+            val,
+            wbDesyncCfg.offset1.Z
         )
-    end)
-    return ok and val or 0
+    end,
+})
+
+TabWallbang:CreateSlider({
+    Name         = "Offset 2 Y",
+    Range        = { -50, 100 },
+    Increment    = 1,
+    Suffix       = " studs",
+    CurrentValue = 10,
+    Flag         = "WBOffset2Y",
+    Callback     = function(val)
+        wbDesyncCfg.offset2 = Vector3.new(
+            wbDesyncCfg.offset2.X,
+            val,
+            wbDesyncCfg.offset2.Z
+        )
+    end,
+})
+
+TabWallbang:CreateSlider({
+    Name         = "Offset 3 Y",
+    Range        = { -50, 100 },
+    Increment    = 1,
+    Suffix       = " studs",
+    CurrentValue = 15,
+    Flag         = "WBOffset3Y",
+    Callback     = function(val)
+        wbDesyncCfg.offset3 = Vector3.new(
+            wbDesyncCfg.offset3.X,
+            val,
+            wbDesyncCfg.offset3.Z
+        )
+    end,
+})
+
+-- ============================================================
+--   TAB 6 — COOLDOWNS
+-- ============================================================
+
+TabCool:CreateSection("Fast Cooldowns")
+
+local COOLDOWN_FIELDS = {
+    "Cooldown", "AttackCooldown", "UseDelay", "SpinCooldown",
+    "HeavyAttackCooldown", "AbilityCooldown", "FireCooldown",
+}
+
+local WAR_HORN_KEYS = {
+    ["War Horn"] = true,
+    ["WarHorn"]  = true,
+}
+
+local cooldownCfg = {
+    enabled      = false,
+    warHornOnly  = false,
+    loopInterval = 2,
+    loopActive   = false,
+}
+
+local cooldownLoopTask = nil
+
+local function zeroCooldowns(item)
+    for _, field in ipairs(COOLDOWN_FIELDS) do
+        if item[field] ~= nil then
+            rawset(item, field, 0)
+        end
+    end
 end
 
-RunService.RenderStepped:Connect(function()
-    frameCount += 1
-    if tick() - frameTimer >= 1 then
-        currentFPS = frameCount
-        frameTimer = tick()
-        frameCount = 0
+local function setFastCooldowns()
+    pcall(function()
+        for _, v in pairs(getgc(true)) do
+            if type(v) == "table" then
+                if rawget(v, "AttackCooldown")     then rawset(v, "AttackCooldown",     0.001) end
+                if rawget(v, "UseDelay")            then rawset(v, "UseDelay",           0.001) end
+                if rawget(v, "SpinCooldown")        then rawset(v, "SpinCooldown",       0.001) end
+                if rawget(v, "Cooldown")            then rawset(v, "Cooldown",           0.001) end
+                if rawget(v, "HeavyAttackCooldown") then rawset(v, "HeavyAttackCooldown",0.001) end
+                if rawget(v, "AbilityCooldown")     then rawset(v, "AbilityCooldown",    0.001) end
+                if rawget(v, "FireCooldown")        then rawset(v, "FireCooldown",       0.001) end
+            end
+        end
+    end)
+    pcall(function()
+        local Modules = ReplicatedStorage:FindFirstChild("Modules")
+        if not Modules then return end
+        local lib = Modules:FindFirstChild("ItemLibrary")
+        if not lib then return end
+        local ok, ItemLibrary = pcall(require, lib)
+        if not ok or type(ItemLibrary) ~= "table" then return end
+        local items = ItemLibrary.Items
+            or ItemLibrary.Weapons
+            or ItemLibrary.Utilities
+        if type(items) ~= "table" then return end
+        for _, item in pairs(items) do
+            if type(item) == "table" then
+                zeroCooldowns(item)
+            end
+        end
+    end)
+end
+
+local function patchWarHorn()
+    local ok2, result = pcall(function()
+        local Modules = ReplicatedStorage:FindFirstChild("Modules")
+        if not Modules then return false end
+        local lib = Modules:FindFirstChild("ItemLibrary")
+        if not lib then return false end
+        local ok, ItemLibrary = pcall(require, lib)
+        if not ok or type(ItemLibrary) ~= "table" then return false end
+        local items = ItemLibrary.Items
+            or ItemLibrary.Weapons
+            or ItemLibrary.Utilities
+        if type(items) ~= "table" then return false end
+        local patched = false
+        for name, item in pairs(items) do
+            if type(item) == "table" then
+                local itemName = item.Name or name
+                if WAR_HORN_KEYS[name] or WAR_HORN_KEYS[itemName] then
+                    zeroCooldowns(item)
+                    patched = true
+                end
+            end
+        end
+        return patched
+    end)
+    return ok2 and result or false
+end
+
+local function startCooldownLoop()
+    cooldownCfg.loopActive = true
+    cooldownLoopTask = task.spawn(function()
+        while cooldownCfg.loopActive do
+            if cooldownCfg.warHornOnly then
+                patchWarHorn()
+            else
+                setFastCooldowns()
+            end
+            task.wait(cooldownCfg.loopInterval)
+        end
+    end)
+end
+
+local function stopCooldownLoop()
+    cooldownCfg.loopActive = false
+    if cooldownLoopTask then
+        task.cancel(cooldownLoopTask)
+        cooldownLoopTask = nil
     end
-    Library:SetWatermark(
-        ("Rivals Hub | %d fps | %d ms"):format(currentFPS, getPing())
-    )
+end
+
+TabCool:CreateToggle({
+    Name         = "Enable Fast Cooldowns",
+    CurrentValue = false,
+    Flag         = "FastCooldowns",
+    Callback     = function(val)
+        cooldownCfg.enabled = val
+        if val then
+            setFastCooldowns()
+            startCooldownLoop()
+            notify("Fast Cooldowns", "Active!")
+        else
+            stopCooldownLoop()
+            notify("Fast Cooldowns", "Off")
+        end
+    end,
+})
+
+TabCool:CreateToggle({
+    Name         = "War Horn Only",
+    CurrentValue = false,
+    Flag         = "WarHornOnly",
+    Callback     = function(val)
+        cooldownCfg.warHornOnly = val
+    end,
+})
+
+TabCool:CreateSlider({
+    Name         = "Loop Interval",
+    Range        = { 1, 30 },
+    Increment    = 1,
+    Suffix       = "s",
+    CurrentValue = 2,
+    Flag         = "CooldownInterval",
+    Callback     = function(val)
+        cooldownCfg.loopInterval = val
+    end,
+})
+
+TabCool:CreateButton({
+    Name     = "Apply Once",
+    Callback = function()
+        if cooldownCfg.warHornOnly then
+            local ok = patchWarHorn()
+            notify("War Horn", ok and "Patched!" or "Not found", 3)
+        else
+            setFastCooldowns()
+            notify("Fast Cooldowns", "Applied once!", 3)
+        end
+    end,
+})
+
+TabCool:CreateSection("War Horn")
+
+TabCool:CreateButton({
+    Name     = "Patch War Horn Now",
+    Callback = function()
+        local ok = patchWarHorn()
+        notify("War Horn", ok and "Patched!" or "Not found / already zero", 3)
+    end,
+})
+
+local warHornLoopTask = nil
+TabCool:CreateToggle({
+    Name         = "War Horn No CD Loop",
+    CurrentValue = false,
+    Flag         = "WarHornLoop",
+    Callback     = function(val)
+        if val then
+            patchWarHorn()
+            warHornLoopTask = task.spawn(function()
+                while val do
+                    patchWarHorn()
+                    task.wait(2)
+                end
+            end)
+            notify("War Horn", "No CD Active!")
+        else
+            if warHornLoopTask then
+                task.cancel(warHornLoopTask)
+                warHornLoopTask = nil
+            end
+            notify("War Horn", "Off")
+        end
+    end,
+})
+
+-- =============================================
+--   AUTO PATCH WAR HORN ON START
+-- =============================================
+
+task.delay(2, function()
+    patchWarHorn()
 end)
 
-Library:OnUnload(function()
-    Library.Unloaded = true
-end)
-
--- ============================================================
---   Save / Theme
--- ============================================================
-
-ThemeManager:SetLibrary(Library)
-SaveManager:SetLibrary(Library)
-
-SaveManager:IgnoreThemeSettings()
-SaveManager:SetIgnoreIndexes({ "MenuKeybind" })
-
-ThemeManager:SetFolder("RivalsHub")
-SaveManager:SetFolder("RivalsHub/Rivals")
-
-SaveManager:BuildConfigSection(Tabs.UISettings)
-ThemeManager:ApplyToTab(Tabs.UISettings)
-
-SaveManager:LoadAutoloadConfig()
-
--- ============================================================
---   Welcome
--- ============================================================
-
-Library:Notify("Rivals Hub Loaded! RightShift to toggle menu.", 5)
+notify("Rivals Hub", "Loaded! All features ready!", 5)
